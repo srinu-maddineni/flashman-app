@@ -19,23 +19,29 @@ const port = process.env.PORT || 4000
 conectDb()
 app.use(express.json())
 app.use(cookieParser())
-app.use(cors({
-  origin: (origin, callback) => {
-    if (!origin) return callback(null, true)
-    const rawOrigin = process.env.FRONTEND_URL || "http://localhost:5173"
-    const allowOrigin = rawOrigin.replace(/\/+$/, "")
-    if (
-      origin === allowOrigin ||
-      origin.startsWith("http://localhost:") ||
-      origin.endsWith(".vercel.app")
-    ) {
-      return callback(null, true)
-    }
-    callback(null, false)
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+app.use(cors((req, callback) => {
+  const origin = req.header('Origin')
+  const rawOrigin = process.env.FRONTEND_URL || "http://localhost:5173"
+  const cleanOrigin = rawOrigin.replace(/['"\r\n\t]/g, "").trim().replace(/\/+$/, "")
+  
+  const corsOptions = {
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization']
+  }
+  
+  if (
+    origin &&
+    (origin === cleanOrigin ||
+     origin.startsWith("http://localhost:") ||
+     origin.endsWith(".vercel.app"))
+  ) {
+    corsOptions.origin = true
+  } else {
+    corsOptions.origin = false
+  }
+  
+  callback(null, corsOptions)
 }))
 
 // Handle preflight OPTIONS requests for any route
