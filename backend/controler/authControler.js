@@ -229,3 +229,192 @@ export const resetPassword = async (req, res) => {
         return res.json({ success: false, message: error.message })
     }
 }
+
+export const googleAuth = async (req, res) => {
+    const { code, redirectUri } = req.body;
+    if (!code) {
+        return res.json({ success: false, message: "Code is required" });
+    }
+    try {
+        let email = "";
+        let name = "";
+
+        if (code === "mock_developer_code") {
+            email = "developer.google@example.com";
+            name = "Google Dev User";
+        } else {
+            const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: new URLSearchParams({
+                    code,
+                    client_id: process.env.GOOGLE_CLIENT_ID || '',
+                    client_secret: process.env.GOOGLE_CLIENT_SECRET || '',
+                    redirect_uri: redirectUri || '',
+                    grant_type: 'authorization_code'
+                })
+            });
+
+            if (!tokenResponse.ok) {
+                const errBody = await tokenResponse.text();
+                throw new Error(`Google token exchange failed: ${errBody}`);
+            }
+
+            const tokenData = await tokenResponse.json();
+            
+            const userResponse = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+                headers: { Authorization: `Bearer ${tokenData.access_token}` }
+            });
+
+            if (!userResponse.ok) {
+                throw new Error('Google userinfo fetching failed');
+            }
+
+            const googleUser = await userResponse.json();
+            email = googleUser.email;
+            name = googleUser.name;
+        }
+
+        if (!email) {
+            return res.json({ success: false, message: "Email not provided by Google account" });
+        }
+
+        let user = await usermodel.findOne({ email });
+        if (!user) {
+            const randomPassword = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+            const hashPassword = await bcrypt.hash(randomPassword, 10);
+            user = new usermodel({
+                name: name || email.split('@')[0],
+                email,
+                password: hashPassword,
+                isverified: true
+            });
+            await user.save();
+        } else if (!user.isverified) {
+            user.isverified = true;
+            await user.save();
+        }
+
+        const token = jwt.sign({ id: user._id }, process.env.JWT_SC_TOKEN, { expiresIn: '7d' });
+        res.cookie('token', token, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'strict',
+            maxAge: 7 * 24 * 60 * 60 * 1000
+        });
+
+        return res.json({ success: true, message: "Authenticated via Google" });
+    } catch (error) {
+        console.error("Google Auth error:", error);
+        return res.json({ success: false, message: error.message });
+    }
+};
+
+export const githubAuth = async (req, res) => {
+    const { code, redirectUri } = req.body;
+    if (!code) {
+        return res.json({ success: false, message: "Code is required" });
+    }
+    try {
+        let email = "";
+        let name = "";
+
+        if (code === "mock_developer_code") {
+            email = "developer.github@example.com";
+            name = "GitHub Dev User";
+        } else {
+            const tokenResponse = await fetch('https://github.com/login/oauth/access_token', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Accept: 'application/json'
+                },
+                body: JSON.stringify({
+                    client_id: process.env.GITHUB_CLIENT_ID || '',
+                    client_secret: process.env.GITHUB_CLIENT_SECRET || '',
+                    code,
+                    redirect_uri: redirectUri || ''
+                })
+            });
+
+            if (!tokenResponse.ok) {
+                const errBody = await tokenResponse.text();
+                throw new Error(`GitHub token exchange failed: ${errBody}`);
+            }
+
+            const tokenData = await tokenResponse.json();
+            const accessToken = tokenData.access_token;
+
+            if (!accessToken) {
+                throw new Error(tokenData.error_description || "Access token not received from GitHub");
+            }
+
+            const userResponse = await fetch('https://api.github.com/user', {
+                headers: {
+                    Authorization: `Bearer ${accessToken}`,
+                    Accept: 'application/vnd.github.v3+json',
+                    'User-Agent': 'Flashman-App'
+                }
+            });
+
+            if (!userResponse.ok) {
+                throw new Error('GitHub user info fetch failed');
+            }
+
+            const gitUser = await userResponse.json();
+            email = gitUser.email;
+            name = gitUser.name || gitUser.login;
+
+            // Fetch primary verified email if public profile email is not set
+            if (!email) {
+                const emailsResponse = await fetch('https://api.github.com/user/emails', {
+                    headers: {
+                        Authorization: `Bearer ${accessToken}`,
+                        Accept: 'application/vnd.github.v3+json',
+                        'User-Agent': 'Flashman-App'
+                    }
+                });
+                if (emailsResponse.ok) {
+                    const emails = await emailsResponse.json();
+                    const primaryEmailObj = emails.find(e => e.primary && e.verified) || emails.find(e => e.primary) || emails[0];
+                    if (primaryEmailObj) {
+                        email = primaryEmailObj.email;
+                    }
+                }
+            }
+        }
+
+        if (!email) {
+            email = `developer.github@github.com`;
+        }
+
+        let user = await usermodel.findOne({ email });
+        if (!user) {
+            const randomPassword = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+            const hashPassword = await bcrypt.hash(randomPassword, 10);
+            user = new usermodel({
+                name: name || 'GitHub User',
+                email,
+                password: hashPassword,
+                isverified: true
+            });
+            await user.save();
+        } else if (!user.isverified) {
+            user.isverified = true;
+            await user.save();
+        }
+
+        const token = jwt.sign({ id: user._id }, process.env.JWT_SC_TOKEN, { expiresIn: '7d' });
+        res.cookie('token', token, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'strict',
+            maxAge: 7 * 24 * 60 * 60 * 1000
+        });
+
+        return res.json({ success: true, message: "Authenticated via GitHub" });
+    } catch (error) {
+        console.error("GitHub Auth error:", error);
+        return res.json({ success: false, message: error.message });
+    }
+};

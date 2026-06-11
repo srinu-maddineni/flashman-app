@@ -1,8 +1,9 @@
-import React, { useContext, useEffect, useState } from 'react';
+import React, { useContext, useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContent } from '../AppContext';
 import { toast } from 'react-toastify';
 import { image } from '../assets/image';
+import axios from 'axios';
 
 const techStackCategories = [
   {
@@ -132,6 +133,7 @@ const Dashboard = () => {
     getHistory,
     loading,
     logout,
+    BACKEND_URL,
   } = useContext(AppContent);
 
   const navigate = useNavigate();
@@ -139,6 +141,116 @@ const Dashboard = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTech, setSelectedTech] = useState(null);
   const [showDifficultyModal, setShowDifficultyModal] = useState(false);
+
+  // Community Feedback Hub state
+  const [feedbacks, setFeedbacks] = useState([]);
+  const [feedbackRating, setFeedbackRating] = useState(5);
+  const [feedbackComment, setFeedbackComment] = useState('');
+  const [submittingFeedback, setSubmittingFeedback] = useState(false);
+
+  const fetchDashboardFeedbacks = async () => {
+    try {
+      const response = await axios.get(`${BACKEND_URL}/api/feedback/all`);
+      if (response.data.success) {
+        setFeedbacks(response.data.feedbacks);
+      }
+    } catch (err) {
+      console.error("Error loading feedbacks:", err);
+    }
+  };
+
+  useEffect(() => {
+    if (isLoggedIn && BACKEND_URL) {
+      fetchDashboardFeedbacks();
+    }
+  }, [isLoggedIn, BACKEND_URL]);
+
+  const handleSubmitFeedback = async (e) => {
+    e.preventDefault();
+    if (!feedbackComment.trim()) {
+      toast.warning("Please enter your feedback comment.");
+      return;
+    }
+    setSubmittingFeedback(true);
+    try {
+      const response = await axios.post(`${BACKEND_URL}/api/feedback/submit`, {
+        feedbackType: 'general',
+        rating: feedbackRating,
+        comment: feedbackComment
+      });
+      if (response.data.success) {
+        toast.success(response.data.message);
+        setFeedbackComment('');
+        setFeedbackRating(5);
+        fetchDashboardFeedbacks();
+      } else {
+        toast.error(response.data.message || "Failed to submit feedback.");
+      }
+    } catch (err) {
+      toast.error(err.response?.data?.message || err.message || "Error submitting feedback.");
+    } finally {
+      setSubmittingFeedback(false);
+    }
+  };
+
+  // Custom Resume Match state and submit handler
+  const [showResumeModal, setShowResumeModal] = useState(false);
+  const [resumeFile, setResumeFile] = useState(null);
+  const [jobDescription, setJobDescription] = useState('');
+  const [customDifficulty, setCustomDifficulty] = useState('Mid-Level');
+  const [customSubmitting, setCustomSubmitting] = useState(false);
+  
+  const fileInputRef = useRef(null);
+
+  const handleCustomSubmit = async (e) => {
+    e.preventDefault();
+    if (!resumeFile) {
+      toast.warning("Please upload your resume first.");
+      return;
+    }
+    if (!jobDescription.trim()) {
+      toast.warning("Please provide a job description.");
+      return;
+    }
+
+    setCustomSubmitting(true);
+    const formData = new FormData();
+    formData.append('resume', resumeFile);
+    formData.append('jobDescription', jobDescription);
+    formData.append('difficulty', customDifficulty);
+
+    try {
+      toast.info("Analyzing resume & job description...");
+      const response = await axios.post(`${BACKEND_URL}/api/interview/start-custom`, formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data'
+        }
+      });
+
+      if (response.data.success) {
+        toast.success("AI interview questions generated! Starting test...");
+        setShowResumeModal(false);
+        setResumeFile(null);
+        setJobDescription('');
+        
+        // Redirect to /test page, passing pre-generated questions
+        navigate('/test', { 
+          state: { 
+            tech: 'Resume Match', 
+            difficulty: customDifficulty,
+            testId: response.data.testId,
+            questions: response.data.questions
+          } 
+        });
+      } else {
+        toast.error(response.data.message || "Failed to generate interview questions.");
+      }
+    } catch (err) {
+      toast.error(err.response?.data?.message || err.message || "An error occurred starting custom test.");
+    } finally {
+      setCustomSubmitting(false);
+    }
+  };
 
   // Calculate performance analytics stats from history
   const totalAssessments = history ? history.length : 0;
@@ -462,6 +574,30 @@ const Dashboard = () => {
           </section>
         )}
 
+        {/* Custom Resume Matcher Banner Card */}
+        <section className="bg-linear-to-r from-slate-900 via-slate-850 to-slate-950 text-white p-6 sm:p-8 rounded-3xl shadow-lg border border-slate-800 flex flex-col md:flex-row items-center justify-between gap-6 relative overflow-hidden group">
+          {/* Subtle glow decorative elements */}
+          <div className="absolute top-0 right-0 w-80 h-80 bg-red-600/10 rounded-full filter blur-3xl opacity-50 group-hover:bg-red-600/20 transition-all duration-500"></div>
+          <div className="absolute bottom-0 left-0 w-80 h-80 bg-yellow-500/10 rounded-full filter blur-3xl opacity-50 group-hover:bg-yellow-500/20 transition-all duration-500"></div>
+
+          <div className="space-y-4 max-w-3xl relative z-10">
+            <span className="inline-flex items-center gap-1.5 bg-red-500/20 border border-red-500/40 px-3.5 py-1 rounded-full text-xs font-bold text-red-400 animate-pulse">
+              ✨ New Premium Feature
+            </span>
+            <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight">AI Resume & Job Matcher</h2>
+            <p className="text-slate-300 text-xs sm:text-sm leading-relaxed max-w-2xl">
+              Don't just practice generic tests. Upload your resume (PDF/TXT) and paste the exact description of the job you are applying for. Our AI will generate custom technical and situational interview questions to verify your fit.
+            </p>
+          </div>
+
+          <button
+            onClick={() => setShowResumeModal(true)}
+            className="w-full md:w-auto px-6 py-3.5 bg-white hover:bg-slate-50 text-slate-900 font-bold rounded-2xl transition duration-155 transform hover:-translate-y-0.5 cursor-pointer text-sm tracking-wide shrink-0 shadow-md relative z-10"
+          >
+            Start Resume Match Test ➔
+          </button>
+        </section>
+
         {/* Tech-stack explorer */}
         <section className="space-y-6">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -636,6 +772,118 @@ const Dashboard = () => {
             </div>
           )}
         </section>
+
+        {/* Community Feedback Hub Section */}
+        <section className="bg-white border border-slate-200 p-6 lg:p-8 rounded-3xl shadow-xs space-y-6 pt-6">
+          <div>
+            <h2 className="text-2xl font-bold text-slate-900">Community Feedback Hub</h2>
+            <p className="text-sm text-slate-500 mt-1">
+              Help us improve Flashman or share your success story with other job seekers!
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            {/* Left Column: Submit feedback form */}
+            <div className="lg:col-span-1 bg-slate-50 border border-slate-150 p-6 rounded-2xl flex flex-col justify-between">
+              <form onSubmit={handleSubmitFeedback} className="space-y-4">
+                <h3 className="text-sm font-bold text-slate-800">Share Your Experience</h3>
+                
+                {/* Interactive Star Rating */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-slate-500 block">Rating</label>
+                  <div className="flex gap-2">
+                    {[1, 2, 3, 4, 5].map((star) => (
+                      <button
+                        key={star}
+                        type="button"
+                        onClick={() => setFeedbackRating(star)}
+                        className="text-2xl transition duration-150 cursor-pointer focus:outline-none"
+                      >
+                        <span className={star <= feedbackRating ? "text-amber-400" : "text-slate-300"}>★</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Comment Text Area */}
+                <div className="space-y-1.5">
+                  <label htmlFor="dashboardComment" className="text-xs font-semibold text-slate-500 block">Your Review</label>
+                  <textarea
+                    id="dashboardComment"
+                    rows="4"
+                    placeholder="Write a message, request features, or share how Flashman helped you prepare..."
+                    value={feedbackComment}
+                    onChange={(e) => setFeedbackComment(e.target.value)}
+                    className="w-full bg-white border border-slate-200 focus:outline-none rounded-xl p-3 text-sm text-slate-800 placeholder-slate-400 transition"
+                    required
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={submittingFeedback}
+                  className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 disabled:bg-slate-300 text-white font-semibold rounded-xl text-xs transition duration-200 cursor-pointer shadow-xs flex items-center justify-center gap-2"
+                >
+                  {submittingFeedback ? (
+                    <>
+                      <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                      Submitting...
+                    </>
+                  ) : (
+                    'Submit Feedback ➔'
+                  )}
+                </button>
+              </form>
+            </div>
+
+            {/* Right Column: Live Feed of Reviews */}
+            <div className="lg:col-span-2 space-y-4 max-h-[350px] overflow-y-auto pr-2 custom-scrollbar">
+              <h3 className="text-sm font-bold text-slate-805">Recent User Reviews</h3>
+              {feedbacks.length > 0 ? (
+                <div className="space-y-3">
+                  {feedbacks.map((item) => (
+                    <div
+                      key={item._id}
+                      className="bg-slate-50 border border-slate-150 p-4 rounded-xl space-y-2 relative group hover:border-slate-300 transition duration-200"
+                    >
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <span className="font-bold text-slate-800 text-xs">{item.userName}</span>
+                          <span className="text-[10px] text-slate-400 font-semibold block mt-0.5">
+                            {item.feedbackType === 'test' ? (
+                              <span className="text-slate-500">
+                                Rated <strong className="text-slate-700">{item.techStack}</strong> Assessment
+                              </span>
+                            ) : (
+                              'General App Review'
+                            )}
+                          </span>
+                        </div>
+                        <div className="flex gap-0.5 text-amber-400 text-sm">
+                          {[...Array(5)].map((_, i) => (
+                            <span key={i}>{i < item.rating ? '★' : '☆'}</span>
+                          ))}
+                        </div>
+                      </div>
+                      <p className="text-slate-600 text-xs leading-relaxed italic">
+                        "{item.comment}"
+                      </p>
+                      <div className="text-[9px] text-slate-400 text-right">
+                        {new Date(item.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="h-[250px] flex flex-col items-center justify-center text-center border border-dashed border-slate-200 rounded-xl bg-slate-50/50">
+                  <span className="text-2xl">💬</span>
+                  <p className="text-xs text-slate-500 font-semibold mt-2">No reviews shared yet.</p>
+                  <p className="text-[11px] text-slate-400 mt-0.5">Be the first to share your thoughts!</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </section>
       </main>
 
       {/* Experience Difficulty Modal */}
@@ -692,6 +940,121 @@ const Dashboard = () => {
                 </div>
               ))}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Resume Upload and JD Modal */}
+      {showResumeModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white border border-slate-200 rounded-3xl max-w-xl w-full p-6 lg:p-8 shadow-2xl relative space-y-6 animate-scale-up">
+            {/* Close Button */}
+            <button
+              onClick={() => {
+                if (!customSubmitting) {
+                  setShowResumeModal(false);
+                  setResumeFile(null);
+                  setJobDescription('');
+                }
+              }}
+              className="absolute right-6 top-6 text-slate-400 hover:text-slate-650 font-bold transition cursor-pointer text-base"
+              disabled={customSubmitting}
+            >
+              ✕
+            </button>
+
+            <div className="text-center space-y-2">
+              <span className="text-3xl">📄</span>
+              <h3 className="text-2xl font-extrabold text-slate-900">Custom Resume Interview</h3>
+              <p className="text-slate-500 text-sm">
+                Generate tailored interview questions matching your resume profile against a job description.
+              </p>
+            </div>
+
+            <form onSubmit={handleCustomSubmit} className="space-y-4">
+              {/* File Uploader */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-slate-500 block">Upload Resume (PDF or TXT)</label>
+                <div 
+                  className={`border-2 border-dashed rounded-2xl p-4 text-center cursor-pointer transition relative ${
+                    resumeFile 
+                      ? 'border-emerald-500 bg-emerald-50/10' 
+                      : 'border-slate-300 hover:border-slate-450 hover:bg-slate-50'
+                  }`}
+                  onClick={() => fileInputRef.current.click()}
+                >
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    accept=".pdf,.txt"
+                    onChange={(e) => {
+                      if (e.target.files && e.target.files[0]) {
+                        setResumeFile(e.target.files[0]);
+                      }
+                    }}
+                    className="hidden"
+                  />
+                  {resumeFile ? (
+                    <div className="space-y-1">
+                      <span className="text-emerald-500 text-xl font-bold">✓</span>
+                      <p className="text-sm font-semibold text-slate-700">{resumeFile.name}</p>
+                      <p className="text-[10px] text-slate-400">Click to change file</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-1">
+                      <span className="text-slate-400 text-xl">📁</span>
+                      <p className="text-sm font-medium text-slate-600">Select or drop file here</p>
+                      <p className="text-[10px] text-slate-400">Supports PDF or plain TXT up to 5MB</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Job Description Text Area */}
+              <div className="space-y-1.5">
+                <label htmlFor="jd" className="text-xs font-semibold text-slate-500 block">Job Description</label>
+                <textarea
+                  id="jd"
+                  rows="5"
+                  placeholder="Paste the target job description (responsibilities, requirements, technical skills)..."
+                  value={jobDescription}
+                  onChange={(e) => setJobDescription(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 focus:outline-none rounded-2xl p-3 text-sm text-slate-800 placeholder-slate-400 transition"
+                  required
+                />
+              </div>
+
+              {/* Difficulty Selection */}
+              <div className="space-y-1.5">
+                <label htmlFor="customDifficulty" className="text-xs font-semibold text-slate-500 block">Experience Level</label>
+                <select
+                  id="customDifficulty"
+                  value={customDifficulty}
+                  onChange={(e) => setCustomDifficulty(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2.5 px-3 text-sm text-slate-800 focus:outline-none focus:border-slate-350"
+                >
+                  <option value="Junior">Junior Level</option>
+                  <option value="Mid-Level">Mid-Level</option>
+                  <option value="Senior">Senior Level</option>
+                </select>
+              </div>
+
+              {/* Submit Button */}
+              <button
+                type="submit"
+                disabled={customSubmitting}
+                className="w-full py-3 bg-slate-900 hover:bg-slate-800 disabled:bg-slate-300 text-white font-semibold rounded-2xl text-sm transition duration-200 cursor-pointer shadow-xs flex items-center justify-center gap-2"
+              >
+                {customSubmitting ? (
+                  <>
+                    <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                    Generating AI Interview... (may take 10s)
+                  </>
+                ) : (
+                  'Start Custom AI Interview ➔'
+                )}
+              </button>
+            </form>
           </div>
         </div>
       )}

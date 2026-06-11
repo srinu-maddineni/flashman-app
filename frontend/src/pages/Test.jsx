@@ -23,9 +23,13 @@ const Test = () => {
   const [isListening, setIsListening] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [timeLeft, setTimeLeft] = useState(90);
+  const [speechError, setSpeechError] = useState(null);
 
   const recognitionRef = useRef(null);
   const currentAnswerRef = useRef('');
+  const silenceTimerRef = useRef(null);
+  const submitAndProceedRef = useRef(null);
+  const shouldBeListeningRef = useRef(false);
 
   // Audio Visualizer Refs
   const canvasRef = useRef(null);
@@ -39,6 +43,26 @@ const Test = () => {
   useEffect(() => {
     currentAnswerRef.current = currentAnswer;
   }, [currentAnswer]);
+
+  // Sync submitAndProceed function ref
+  useEffect(() => {
+    submitAndProceedRef.current = submitAndProceed;
+  });
+
+  const startListeningAutomatically = () => {
+    if (recognitionRef.current && !isListening) {
+      try {
+        setCurrentAnswer('');
+        setSpeechError(null);
+        shouldBeListeningRef.current = true;
+        recognitionRef.current.start();
+        setIsListening(true);
+        toast.info('Microphone active. Please speak your answer.');
+      } catch (err) {
+        console.error('Speech start error:', err);
+      }
+    }
+  };
 
   // Initialize Speech-to-Text Recognition
   useEffect(() => {
@@ -55,22 +79,61 @@ const Test = () => {
           transcript += event.results[i][0].transcript;
         }
         setCurrentAnswer(transcript);
+
+        // Clear existing silence timer
+        if (silenceTimerRef.current) {
+          clearTimeout(silenceTimerRef.current);
+        }
+
+        // Auto-submit after 3 seconds of silence once user has started speaking
+        if (transcript.trim().length > 0) {
+          silenceTimerRef.current = setTimeout(async () => {
+            console.log("Silence threshold met. Auto-submitting...");
+            shouldBeListeningRef.current = false;
+            rec.stop();
+            setIsListening(false);
+            
+            toast.info("Auto-submitting your answer due to pause...");
+            if (submitAndProceedRef.current) {
+              await submitAndProceedRef.current(transcript);
+            }
+          }, 3000); // 3 seconds silence threshold
+        }
       };
 
       rec.onerror = (event) => {
         console.error('Speech recognition error:', event.error);
+        setSpeechError(event.error);
         if (event.error !== 'no-speech') {
           toast.error(`Speech recognition error: ${event.error}`);
-          setIsListening(false);
         }
       };
 
       rec.onend = () => {
-        setIsListening(false);
+        // Automatically restart speech recognition if it ended unexpectedly
+        if (shouldBeListeningRef.current) {
+          console.log("Speech recognition ended unexpectedly. Restarting...");
+          try {
+            rec.start();
+          } catch (err) {
+            console.error("Failed to restart speech recognition:", err);
+          }
+        } else {
+          setIsListening(false);
+          if (silenceTimerRef.current) {
+            clearTimeout(silenceTimerRef.current);
+          }
+        }
       };
 
       recognitionRef.current = rec;
     }
+
+    return () => {
+      if (silenceTimerRef.current) {
+        clearTimeout(silenceTimerRef.current);
+      }
+    };
   }, []);
 
   // Text-to-Speech (TTS) Voice Prompt Generator
@@ -81,20 +144,37 @@ const Test = () => {
       const utterance = new SpeechSynthesisUtterance(cleanText);
       utterance.lang = 'en-US';
       utterance.rate = 1.0;
+      
+      utterance.onend = () => {
+        if (!isMuted && !testFinished) {
+          startListeningAutomatically();
+        }
+      };
+
       window.speechSynthesis.speak(utterance);
     }
   };
 
   // Run speaking question and handle cleanups
   useEffect(() => {
-    if (questions && questions[currentIndex] && !isMuted && !loading && !testFinished) {
+    if (loading || testFinished || !questions.length) return;
+
+    if (!isMuted) {
       speakQuestion(questions[currentIndex]);
+    } else {
+      // If muted, start microphone immediately on question switch
+      startListeningAutomatically();
     }
+
     return () => {
       if ('speechSynthesis' in window) {
         window.speechSynthesis.cancel();
       }
+      if (silenceTimerRef.current) {
+        clearTimeout(silenceTimerRef.current);
+      }
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentIndex, questions, isMuted, loading, testFinished]);
 
   // Manage 90-second countdown timer for each question
@@ -123,10 +203,13 @@ const Test = () => {
     await submitAndProceed(finalAnswer);
   };
 
-  // Stop listening when question changes
+  // Stop listening and clear timers when question changes
   useEffect(() => {
     if (isListening && recognitionRef.current) {
       recognitionRef.current.stop();
+    }
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentIndex]);
@@ -237,6 +320,21 @@ const Test = () => {
     }
   };
 
+  const getSpeechErrorMessage = (error) => {
+    switch (error) {
+      case 'not-allowed':
+        return 'Microphone permission blocked. Click the lock/mic icon in the browser address bar and allow microphone access.';
+      case 'service-not-allowed':
+        return 'Speech recognition service is blocked by your browser. If you are on Brave, please disable shields, or use Google Chrome / MS Edge.';
+      case 'network':
+        return 'Network error: The browser speech service is offline or unreachable.';
+      case 'no-speech':
+        return 'No speech detected. Please speak louder, check if your system microphone is muted, or verify the input source.';
+      default:
+        return `Speech recognition error (${error}). Try using Google Chrome or type your response directly in the box below.`;
+    }
+  };
+
   const toggleListening = () => {
     if (!recognitionRef.current) {
       toast.error('Speech-to-text is not supported in this browser. Please use Google Chrome or Microsoft Edge.');
@@ -244,10 +342,17 @@ const Test = () => {
     }
 
     if (isListening) {
+      shouldBeListeningRef.current = false;
       recognitionRef.current.stop();
+      setIsListening(false);
+      if (silenceTimerRef.current) {
+        clearTimeout(silenceTimerRef.current);
+      }
     } else {
       try {
         setCurrentAnswer('');
+        setSpeechError(null);
+        shouldBeListeningRef.current = true;
         recognitionRef.current.start();
         setIsListening(true);
         toast.info('Microphone active. Please speak your answer.');
@@ -267,6 +372,14 @@ const Test = () => {
   // Generate questions on mount
   useEffect(() => {
     const generateQuestions = async () => {
+      // Check if we already have pre-generated questions from Custom Resume Matcher
+      if (location.state?.testId && location.state?.questions) {
+        setTestId(location.state.testId);
+        setQuestions(location.state.questions);
+        setLoading(false);
+        return;
+      }
+
       try {
         setLoading(true);
         const response = await axios.post(`${BACKEND_URL}/api/interview/start`, { techStack, difficulty });
@@ -308,6 +421,17 @@ const Test = () => {
   };
 
   const submitAndProceed = async (answerText) => {
+    shouldBeListeningRef.current = false;
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.stop();
+      } catch (e) {}
+    }
+    setIsListening(false);
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current);
+    }
+
     setSubmitting(true);
     // Cancel active speaker synthesis on submit/skip
     if ('speechSynthesis' in window) {
@@ -519,12 +643,18 @@ const Test = () => {
               </div>
 
               {isListening && (
-                <div className="bg-rose-50/50 border border-rose-100 rounded-xl p-4 flex flex-col gap-3">
+                <div className="bg-rose-50/50 border border-rose-100 rounded-xl p-4 flex flex-col gap-3 animate-fade-in">
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className="w-2.5 h-2.5 bg-rose-500 rounded-full animate-ping"></span>
-                      <span className="text-xs text-rose-700 font-bold">Microphone is active. Speak clearly...</span>
-                    </div>
+                    {speechError ? (
+                      <div className="text-xs text-rose-600 font-semibold bg-rose-100/50 p-2 rounded-lg border border-rose-200/50 w-full text-left">
+                        ⚠️ {getSpeechErrorMessage(speechError)}
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <span className="w-2.5 h-2.5 bg-rose-500 rounded-full animate-ping"></span>
+                        <span className="text-xs text-rose-700 font-bold">Microphone is active. Speak clearly...</span>
+                      </div>
+                    )}
                   </div>
                   {/* Real-time Voice Waveform Visualizer */}
                   <div className="w-full bg-rose-100/30 rounded-xl p-1 overflow-hidden border border-rose-200/50">
@@ -540,11 +670,11 @@ const Test = () => {
 
               <textarea
                 id="answer"
-                placeholder={isListening ? "Listening... Speak your answer now." : "Click 'Start speaking' above to dictate your answer. Typing is disabled for this test."}
+                placeholder={isListening ? "Listening... Speak your answer now (you can also edit/type in this box)." : "Click 'Start speaking' to dictate, or type your answer here directly."}
                 value={currentAnswer}
-                readOnly
+                onChange={(e) => setCurrentAnswer(e.target.value)}
                 disabled={submitting}
-                className="w-full bg-slate-50/70 border border-slate-200 focus:outline-none rounded-2xl p-4 text-slate-700 placeholder-slate-400 transition h-48 resize-none text-base leading-relaxed cursor-not-allowed select-none"
+                className="w-full bg-slate-50/70 border border-slate-200 focus:outline-none focus:border-slate-350 rounded-2xl p-4 text-slate-700 placeholder-slate-400 transition h-48 resize-none text-base leading-relaxed"
                 required
               />
             </div>

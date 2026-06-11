@@ -2,6 +2,9 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import interviewModel from '../model/interviewModel.js';
 import crypto from 'crypto'
 import mongoose from 'mongoose';
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+const pdf = require('pdf-parse');
 
 export const startText = async (req, res) => {
     const { techStack, difficulty = 'Mid-Level' } = req.body;
@@ -141,11 +144,22 @@ const evalWithGeminiAiInBackground = async (recodeId, question, answer, wpm, att
     catch (error) {
         console.error(`[GEMINI EVAL ATTEMPT ${attempt} FAILED] for record ${recodeId}:`, error.message);
         
-        const maxAttempts = 4;
+        const maxAttempts = 6;
         if (attempt < maxAttempts) {
-            // Exponential delay: 2s, 4s, 8s
-            const delay = Math.pow(2, attempt) * 1000;
-            console.log(`Retrying in ${delay}ms...`);
+            const isQuotaError = error.message && (
+                error.message.toLowerCase().includes("quota") || 
+                error.message.toLowerCase().includes("limit") || 
+                error.message.toLowerCase().includes("exhausted") || 
+                error.message.includes("429")
+            );
+            // Quota/Rate limit delay: 15s, 30s, 45s, 60s, 75s
+            // Other errors delay: 3s, 6s, 12s, 24s, 48s
+            const delay = isQuotaError 
+                ? attempt * 15000 
+                : Math.pow(2, attempt) * 1500 + 1500;
+
+            console.log(`[GEMINI RETRY] ${isQuotaError ? 'Quota/Rate-limit error detected. Heavy backoff applied.' : ''} Retrying attempt ${attempt + 1} in ${delay}ms...`);
+            
             setTimeout(() => {
                 evalWithGeminiAiInBackground(recodeId, question, answer, wpm, attempt + 1);
             }, delay);
@@ -242,6 +256,90 @@ export const reEvaluateAnswer = async (req, res) => {
     } catch (error) {
         console.error("Re-evaluation error:", error);
         return res.json({ success: false, message: error.message });
+    }
+};
+
+export const startCustomTest = async (req, res) => {
+    const { jobDescription, difficulty = 'Mid-Level' } = req.body;
+    const file = req.file;
+
+    console.log(`[START CUSTOM TEST] Request received. File present: ${!!file}, difficulty: "${difficulty}"`);
+
+    if (!jobDescription) {
+        return res.json({ success: false, message: "Please provide a job description" });
+    }
+    if (!file) {
+        return res.json({ success: false, message: "Please upload your resume" });
+    }
+
+    try {
+        let resumeText = "";
+        
+        if (file.mimetype === 'application/pdf') {
+            console.log("[START CUSTOM TEST] Parsing PDF resume...");
+            const parsed = await pdf(file.buffer);
+            resumeText = parsed.text;
+        } else {
+            console.log("[START CUSTOM TEST] Parsing plain text resume...");
+            resumeText = file.buffer.toString('utf-8');
+        }
+
+        if (!resumeText.trim()) {
+            return res.json({ success: false, message: "Resume appears to be empty or unparseable." });
+        }
+
+        const apiKey = process.env.GEMINI_API_KEY;
+        if (!apiKey) {
+            console.error("[START CUSTOM TEST] GEMINI_API_KEY is not defined in backend/.env");
+            return res.json({ success: false, message: "Server configuration error (missing Gemini key)" });
+        }
+
+        console.log("[START CUSTOM TEST] Initializing Gemini AI...");
+        const genAI = new GoogleGenerativeAI(apiKey);
+        const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+
+        const prompt = `You are a Senior Software Engineering interviewer.
+        You are preparing an interview for a candidate based on their resume and the target job description.
+        
+        Candidate's Resume Content:
+        """
+        ${resumeText.substring(0, 10000)}
+        """
+        
+        Target Job Description:
+        """
+        ${jobDescription.substring(0, 5000)}
+        """
+        
+        Generate exactly 10 high-quality technical and situational interview questions at a "${difficulty}" level customized for this candidate.
+        The questions should:
+        1. Probe the candidate's actual experience and claims in their resume relative to the job requirements.
+        2. Ask questions testing the key skills, patterns, and technologies described in both documents.
+        3. Be concise and direct, suitable for a candidate to speak a response.
+        4. Focus on deep understanding, architecture, or coding best practices.
+        
+        Return your response as a single, valid, parsable JSON array of strings ONLY. Do not wrap the JSON in markdown code blocks like \`\`\`json or add any other text before/after.
+        Example output format:
+        [
+          "First custom question?",
+          "Second custom question?",
+          "Third custom question?"
+        ]`;
+
+        console.log("[START CUSTOM TEST] Calling Gemini to generate questions...");
+        const result = await model.generateContent(prompt);
+        const text = result.response.text();
+
+        const cleanText = text.replace(/```json/gi, "").replace(/```/gi, "").trim();
+        const questions = JSON.parse(cleanText);
+        const testId = crypto.randomUUID();
+
+        console.log("[START CUSTOM TEST] Questions generated successfully! testId:", testId);
+        return res.json({ success: true, testId, questions });
+    }
+    catch (error) {
+        console.error("[START CUSTOM TEST] Error:", error);
+        return res.json({ success: false, message: error.message || "Failed to generate custom interview questions" });
     }
 };
 

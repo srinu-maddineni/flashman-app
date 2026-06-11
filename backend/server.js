@@ -9,6 +9,7 @@ import conectDb from "./config/mongodb.js"
 import authRouter from "./routers/authRouter.js"
 import userRouter from "./routers/userRouter.js"
 import interviewRouter from "./routers/interviewRouter.js"
+import feedbackRouter from "./routers/feedbackRouter.js"
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -23,40 +24,32 @@ app.use(cors((req, callback) => {
   const origin = req.header('Origin')
   const rawOrigin = process.env.FRONTEND_URL || "http://localhost:5173"
   const cleanOrigin = rawOrigin.replace(/['"\r\n\t]/g, "").trim().replace(/\/+$/, "")
-  
+
   const corsOptions = {
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization']
   }
-  
+
   if (
     origin &&
     (origin === cleanOrigin ||
-     origin.startsWith("http://localhost:") ||
-     origin.endsWith(".vercel.app"))
+      origin.startsWith("http://localhost:") ||
+      origin.endsWith(".vercel.app"))
   ) {
     corsOptions.origin = true
   } else {
     corsOptions.origin = false
   }
-  
+
   callback(null, corsOptions)
 }))
-
-// Handle preflight OPTIONS requests for any route
-// app.options(/.*/, (req, res) => {
-//   res.setHeader('Access-Control-Allow-Origin', allowOrigin);
-//   res.setHeader('Access-Control-Allow-Credentials', 'true');
-//   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
-//   res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
-//   res.sendStatus(204);
-// });
 
 
 app.use('/api/auth', authRouter)
 app.use('/api/user', userRouter)
 app.use('/api/interview', interviewRouter)
+app.use('/api/feedback', feedbackRouter)
 
 const distPath = path.join(__dirname, '../frontend/dist')
 if (process.env.NODE_ENV === 'production' && fs.existsSync(distPath)) {

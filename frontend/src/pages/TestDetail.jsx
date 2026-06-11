@@ -15,6 +15,12 @@ const TestDetail = () => {
   const [loading, setLoading] = useState(true);
   const [expandedIndex, setExpandedIndex] = useState(0); // Default expand first question
   
+  // Post-test feedback state
+  const [hasFeedback, setHasFeedback] = useState(false);
+  const [testRating, setTestRating] = useState(5);
+  const [testComment, setTestComment] = useState('');
+  const [submittingTestFeedback, setSubmittingTestFeedback] = useState(false);
+  
   // Use a ref to keep track of polling interval
   const pollIntervalRef = useRef(null);
 
@@ -65,10 +71,54 @@ const TestDetail = () => {
     }
   };
 
+  const checkIfFeedbackSubmitted = async () => {
+    try {
+      const response = await axios.get(`${BACKEND_URL}/api/feedback/check/${testId}`);
+      if (response.data.success) {
+        setHasFeedback(response.data.hasFeedback);
+      }
+    } catch (err) {
+      console.error("Error checking test feedback status:", err);
+    }
+  };
+
+  const handleTestFeedbackSubmit = async (e) => {
+    e.preventDefault();
+    if (!testComment.trim()) {
+      toast.warning("Please write a comment for your test review.");
+      return;
+    }
+    setSubmittingTestFeedback(true);
+    const currentTech = results[0]?.techStack || 'Assessment';
+    const currentDifficulty = results[0]?.difficulty || 'Mid-Level';
+    try {
+      const response = await axios.post(`${BACKEND_URL}/api/feedback/submit`, {
+        feedbackType: 'test',
+        testId,
+        techStack: currentTech,
+        difficulty: currentDifficulty,
+        rating: testRating,
+        comment: testComment
+      });
+      if (response.data.success) {
+        toast.success(response.data.message);
+        setHasFeedback(true);
+        setTestComment('');
+      } else {
+        toast.error(response.data.message || "Failed to submit feedback.");
+      }
+    } catch (err) {
+      toast.error(err.response?.data?.message || err.message || "Error submitting feedback.");
+    } finally {
+      setSubmittingTestFeedback(false);
+    }
+  };
+
   // Initial fetch on mount
   useEffect(() => {
     if (isLoggedIn && testId) {
       fetchResults(true);
+      checkIfFeedbackSubmitted();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLoggedIn, testId]);
@@ -241,6 +291,53 @@ const TestDetail = () => {
               Some answers are currently being analyzed by Gemini AI in the background. The page will <strong>automatically refresh</strong> as scores and critiques arrive.
             </p>
           </div>
+        )}
+
+        {/* Post-Test Feedback Option */}
+        {!hasFeedback && !isEvaluating && results.length > 0 && (
+          <section className="bg-white border border-slate-200 p-6 lg:p-8 rounded-3xl shadow-xs space-y-4 animate-fade-in">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+              <div>
+                <h2 className="text-xl font-bold text-slate-900">How was this Assessment?</h2>
+                <p className="text-sm text-slate-500 mt-1">
+                  Rate the quality of the {techStack} questions and Gemini's evaluation.
+                </p>
+              </div>
+              
+              {/* Star rating selector */}
+              <div className="flex gap-2 shrink-0">
+                {[1, 2, 3, 4, 5].map((star) => (
+                  <button
+                    key={star}
+                    type="button"
+                    onClick={() => setTestRating(star)}
+                    className="text-2xl transition duration-150 cursor-pointer focus:outline-none"
+                  >
+                    <span className={star <= testRating ? "text-amber-400" : "text-slate-300"}>★</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <form onSubmit={handleTestFeedbackSubmit} className="flex flex-col sm:flex-row gap-3">
+              <input
+                type="text"
+                placeholder="Leave a quick review on this assessment (e.g. 'Questions were solid, evaluation was very accurate')..."
+                value={testComment}
+                onChange={(e) => setTestComment(e.target.value)}
+                disabled={submittingTestFeedback}
+                className="flex-1 bg-slate-50 border border-slate-200 focus:outline-none rounded-xl px-4 py-2.5 text-sm text-slate-800 placeholder-slate-400 transition"
+                required
+              />
+              <button
+                type="submit"
+                disabled={submittingTestFeedback}
+                className="px-6 py-2.5 bg-slate-900 hover:bg-slate-800 disabled:bg-slate-350 text-white font-bold rounded-xl text-xs sm:text-sm cursor-pointer shadow-xs transition duration-150 shrink-0"
+              >
+                {submittingTestFeedback ? 'Submitting...' : 'Submit Rating'}
+              </button>
+            </form>
+          </section>
         )}
 
         {/* Detailed Question Review Accordion */}
