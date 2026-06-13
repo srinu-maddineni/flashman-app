@@ -2,62 +2,50 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import govTestModel from '../model/govTestModel.js';
 import crypto from 'crypto';
 
-const callGeminiFallback = async (examType, subject, questionSource, count, batchIndex) => {
-    console.log(`[START GOV TEST] Batch ${batchIndex}: Groq failed. Initiating Gemini fallback...`);
-    const apiKeys = process.env.GEMINI_API_KEYS
-        ? process.env.GEMINI_API_KEYS.split(',').map(k => k.trim()).filter(Boolean)
-        : [process.env.GEMINI_API_KEY];
-
-    if (!apiKeys.length || !apiKeys[0]) {
-        throw new Error("No Gemini API keys configured for fallback.");
+const generateQuestionsBatch = async (examType, subject, questionSource, count, batchIndex) => {
+    console.log(`[START GOV TEST] Batch ${batchIndex}: Starting generation of ${count} questions via Gemini...`);
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+        throw new Error("GEMINI_API_KEY is not defined in backend/.env");
     }
 
-    let lastError = null;
-    const startIndex = Math.floor(Math.random() * apiKeys.length);
-
-    for (let i = 0; i < apiKeys.length; i++) {
-        const keyIndex = (startIndex + i) % apiKeys.length;
-        const apiKey = apiKeys[keyIndex];
-
-        try {
-            console.log(`[START GOV TEST] Batch ${batchIndex}: Trying Gemini Key index ${keyIndex}...`);
-            const genAI = new GoogleGenerativeAI(apiKey);
-            const model = genAI.getGenerativeModel({
-                model: "gemini-2.5-flash",
-                generationConfig: {
-                    responseMimeType: "application/json",
-                    responseSchema: {
-                        type: "ARRAY",
-                        items: {
-                            type: "OBJECT",
-                            properties: {
-                                questionText: { type: "STRING" },
-                                options: {
-                                    type: "ARRAY",
-                                    items: { type: "STRING" }
-                                },
-                                correctOption: { type: "STRING" },
-                                explanation: { type: "STRING" }
-                            },
-                            required: ["questionText", "options", "correctOption", "explanation"]
-                        }
-                    }
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const model = genAI.getGenerativeModel({
+        model: "gemini-2.5-flash",
+        generationConfig: {
+            responseMimeType: "application/json",
+            responseSchema: {
+                type: "ARRAY",
+                items: {
+                    type: "OBJECT",
+                    properties: {
+                        questionText: { type: "STRING" },
+                        options: {
+                            type: "ARRAY",
+                            items: { type: "STRING" }
+                        },
+                        correctOption: { type: "STRING" },
+                        explanation: { type: "STRING" }
+                    },
+                    required: ["questionText", "options", "correctOption", "explanation"]
                 }
-            });
-
-            let focusStyle = "";
-            if (batchIndex === 1) {
-                focusStyle = "Focus on foundational facts, definitions, core concepts, and basic to intermediate theories/applications.";
-            } else {
-                focusStyle = "Focus on advanced analysis, tough logical reasoning, complex problem solving, scenarios, exceptions, and deep conceptual integration.";
             }
+        }
+    });
 
-            let promptStyle = `Generate exactly ${count} distinct, high-quality, challenging Multiple Choice Questions (MCQs) for the exam: "${examType}" and subject/topic: "${subject}". ${focusStyle}`;
-            if (questionSource === 'pyq') {
-                promptStyle = `Generate exactly ${count} distinct, high-quality, authentic Previous Years Questions (PYQs) or extremely realistic reproductions of actual questions asked in past years for the exam: "${examType}" and subject/topic: "${subject}". In the explanation, mention which year or context of the exam it was asked in. ${focusStyle}`;
-            }
+    let focusStyle = "";
+    if (batchIndex === 1) {
+        focusStyle = "Focus on foundational facts, definitions, core concepts, and basic to intermediate theories/applications.";
+    } else {
+        focusStyle = "Focus on advanced analysis, tough logical reasoning, complex problem solving, scenarios, exceptions, and deep conceptual integration.";
+    }
 
-            const prompt = `You are a professional examiner for Government Exams.
+    let promptStyle = `Generate exactly ${count} distinct, high-quality, challenging Multiple Choice Questions (MCQs) for the exam: "${examType}" and subject/topic: "${subject}". ${focusStyle}`;
+    if (questionSource === 'pyq') {
+        promptStyle = `Generate exactly ${count} distinct, high-quality, authentic Previous Years Questions (PYQs) or extremely realistic reproductions of actual questions asked in past years for the exam: "${examType}" and subject/topic: "${subject}". In the explanation, mention which year or context of the exam it was asked in. ${focusStyle}`;
+    }
+
+    const prompt = `You are a professional examiner for Government Exams.
 ${promptStyle}
 Each question must have exactly 4 options: A, B, C, and D.
 For each question, provide:
@@ -68,127 +56,27 @@ For each question, provide:
 
 Return your response as a single, valid, parsable JSON array of objects ONLY.`;
 
-            const result = await model.generateContent(prompt);
-            const text = result.response.text();
-            let cleanText = text.replace(/```json/gi, "").replace(/```/gi, "").trim();
+    const result = await model.generateContent(prompt);
+    const text = result.response.text();
+    let cleanText = text.replace(/```json/gi, "").replace(/```/gi, "").trim();
 
-            try {
-                const parsed = JSON.parse(cleanText);
-                console.log(`[START GOV TEST] Batch ${batchIndex}: Gemini Key index ${keyIndex} successfully parsed ${parsed.length} questions.`);
-                return parsed;
-            } catch (parseError) {
-                console.warn(`[START GOV TEST] Batch ${batchIndex}: Gemini parsing failed, attempting sanitization:`, parseError.message);
-                const sanitized = cleanText.replace(/[\u0000-\u001F]+/g, (match) => {
-                    if (match === '\n') return '\\n';
-                    if (match === '\r') return '\\r';
-                    if (match === '\t') return '\\t';
-                    return '';
-                });
-                const parsed = JSON.parse(sanitized);
-                console.log(`[START GOV TEST] Batch ${batchIndex}: Gemini Key index ${keyIndex} parsed ${parsed.length} questions after sanitization.`);
-                return parsed;
-            }
-        } catch (error) {
-            console.warn(`[START GOV TEST] Batch ${batchIndex}: Gemini Key index ${keyIndex} failed: ${error.message}`);
-            lastError = error;
-            continue;
-        }
-    }
-
-    throw lastError || new Error("All backup Gemini API keys failed.");
-};
-
-const generateQuestionsBatch = async (examType, subject, questionSource, count, batchIndex) => {
     try {
-        console.log(`[START GOV TEST] Batch ${batchIndex}: Starting generation of ${count} questions via Groq...`);
-        const apiKey = process.env.GROG_API_KEY || process.env.GROQ_API_KEY;
-        if (!apiKey) {
-            throw new Error("GROG_API_KEY is not defined in backend/.env");
-        }
-
-        let focusStyle = "";
-        if (batchIndex === 1) {
-            focusStyle = "Focus on foundational facts, definitions, core concepts, and basic to intermediate theories/applications.";
-        } else {
-            focusStyle = "Focus on advanced analysis, tough logical reasoning, complex problem solving, scenarios, exceptions, and deep conceptual integration.";
-        }
-
-        let promptStyle = `Generate exactly ${count} distinct, high-quality, challenging Multiple Choice Questions (MCQs) for the exam: "${examType}" and subject/topic: "${subject}". ${focusStyle}`;
-        if (questionSource === 'pyq') {
-            promptStyle = `Generate exactly ${count} distinct, high-quality, authentic Previous Years Questions (PYQs) or extremely realistic reproductions of actual questions asked in past years for the exam: "${examType}" and subject/topic: "${subject}". In the explanation, mention which year or context of the exam it was asked in. ${focusStyle}`;
-        }
-
-        const prompt = `You are a professional examiner for Government Exams.
-${promptStyle}
-Each question must have exactly 4 options.
-For each question, provide:
-1. The question text.
-2. An array of 4 options (strings).
-3. The correct option letter (must be exactly one of "A", "B", "C", or "D").
-4. A detailed, clear explanation explaining why that option is correct.
-
-You must output your response as a single valid JSON object containing a key "questions" which is an array of ${count} question objects.
-Each question object in the array must look exactly like this:
-{
-  "questionText": "Question text here",
-  "options": ["Option A text", "Option B text", "Option C text", "Option D text"],
-  "correctOption": "A",
-  "explanation": "Detailed explanation here"
-}`;
-
-        const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-            method: "POST",
-            headers: {
-                "Authorization": `Bearer ${apiKey.replace(/['"\r\n\t]/g, "").trim()}`,
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify({
-                model: "llama-3.1-8b-instant",
-                messages: [
-                    { role: "system", content: "You are a professional examiner for Government Exams." },
-                    { role: "user", content: prompt }
-                ],
-                response_format: { type: "json_object" },
-                temperature: 0.7
-            })
+        const parsed = JSON.parse(cleanText);
+        console.log(`[START GOV TEST] Batch ${batchIndex}: Successfully parsed ${parsed.length} questions from Gemini.`);
+        return parsed;
+    } catch (parseError) {
+        console.warn(`[START GOV TEST] Batch ${batchIndex}: Gemini JSON.parse failed, attempting control character sanitization:`, parseError.message);
+        const sanitized = cleanText.replace(/[\u0000-\u001F]+/g, (match) => {
+            if (match === '\n') return '\\n';
+            if (match === '\r') return '\\r';
+            if (match === '\t') return '\\t';
+            return '';
         });
-
-        if (!response.ok) {
-            const errText = await response.text();
-            throw new Error(`Groq API Error: ${response.statusText} (${response.status}) - ${errText}`);
-        }
-
-        const resData = await response.json();
-        const content = resData.choices?.[0]?.message?.content;
-        if (!content) {
-            throw new Error("Empty content received from Groq API.");
-        }
-
-        let cleanText = content.trim();
-        try {
-            const parsed = JSON.parse(cleanText);
-            const questionsArray = parsed.questions || [];
-            console.log(`[START GOV TEST] Batch ${batchIndex}: Successfully parsed ${questionsArray.length} questions from Groq.`);
-            return questionsArray;
-        } catch (parseError) {
-            console.warn(`[START GOV TEST] Batch ${batchIndex}: Groq JSON.parse failed, attempting control character sanitization:`, parseError.message);
-            const sanitized = cleanText.replace(/[\u0000-\u001F]+/g, (match) => {
-                if (match === '\n') return '\\n';
-                if (match === '\r') return '\\r';
-                if (match === '\t') return '\\t';
-                return '';
-            });
-            const parsed = JSON.parse(sanitized);
-            const questionsArray = parsed.questions || [];
-            console.log(`[START GOV TEST] Batch ${batchIndex}: Successfully parsed ${questionsArray.length} questions from Groq after sanitization.`);
-            return questionsArray;
-        }
-    } catch (groqError) {
-        console.warn(`[START GOV TEST] Batch ${batchIndex}: Groq call failed. Fallback to Gemini... Error:`, groqError.message);
-        // Fallback to Gemini
-        return await callGeminiFallback(examType, subject, questionSource, count, batchIndex);
+        const parsed = JSON.parse(sanitized);
+        console.log(`[START GOV TEST] Batch ${batchIndex}: Successfully parsed ${parsed.length} questions from Gemini after sanitization.`);
+        return parsed;
     }
-};
+};;
 
 export const startGovTest = async (req, res) => {
     const { examType, subject, questionSource = 'ai' } = req.body;
@@ -219,11 +107,10 @@ export const startGovTest = async (req, res) => {
             });
         }
 
-        const groqKey = process.env.GROG_API_KEY || process.env.GROQ_API_KEY;
         const geminiKey = process.env.GEMINI_API_KEY;
-        if (!groqKey && !geminiKey) {
-            console.error("[START GOV TEST] No API keys defined in backend/.env");
-            return res.json({ success: false, message: "No API keys configured." });
+        if (!geminiKey) {
+            console.error("[START GOV TEST] No GEMINI_API_KEY defined in backend/.env");
+            return res.json({ success: false, message: "GEMINI_API_KEY is not configured." });
         }
 
         const startTime = Date.now();
@@ -283,7 +170,7 @@ export const startGovTest = async (req, res) => {
         console.error("[START GOV TEST] Error in startGovTest:", error);
         let errMsg = error.message || "";
         if (errMsg.includes("429") || errMsg.toLowerCase().includes("quota") || errMsg.toLowerCase().includes("too many requests") || errMsg.toLowerCase().includes("rate limit")) {
-            errMsg = "API rate limit exceeded. Please wait 30-60 seconds before trying again, or set up billing in your Groq/Google Cloud console.";
+            errMsg = "API rate limit exceeded. Please wait 30-60 seconds before trying again, or set up billing in your Google AI Studio console.";
         }
         return res.json({ success: false, message: errMsg });
     }
