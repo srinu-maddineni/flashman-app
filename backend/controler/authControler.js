@@ -10,13 +10,14 @@ export const register = async (req, res) => {
     if (!name || !email || !password) {
         return res.json({ success: false, message: "missing Deatails" })
     }
+    const normalizedEmail = email.toLowerCase().trim()
     try {
-        const userExits = await usermodel.findOne({ email })
+        const userExits = await usermodel.findOne({ email: normalizedEmail })
         if (userExits) {
             return res.json({ success: false, message: "User already Exits" })
         }
         const hashPassword = await bcrypt.hash(password, 10)
-        const user = new usermodel({ name, email, password: hashPassword })
+        const user = new usermodel({ name, email: normalizedEmail, password: hashPassword })
         await user.save()
 
         const token = jwt.sign({ id: user._id }, process.env.JWT_SC_TOKEN, { expiresIn: '7d' })
@@ -56,8 +57,9 @@ export const login = async (req, res) => {
     if (!email || !password) {
         return res.json({ success: false, message: 'email and password required' })
     }
+    const normalizedEmail = email.toLowerCase().trim()
     try {
-        const user = await usermodel.findOne({ email })
+        const user = await usermodel.findOne({ email: normalizedEmail })
 
         if (!user) {
             return res.json({ success: false, message: "Invalid email" })
@@ -188,8 +190,9 @@ export const resetOtp = async (req, res) => {
     if (!email) {
         return res.json({ success: false, message: "Enter email" })
     }
+    const normalizedEmail = email.toLowerCase().trim()
     try {
-        const user = await usermodel.findOne({ email })
+        const user = await usermodel.findOne({ email: normalizedEmail })
         if (!user) {
             return res.json({ success: false, message: "User not find" })
         }
@@ -224,8 +227,9 @@ export const resetPassword = async (req, res) => {
     if (!email || !otp || !newPassword) {
         return res.json({ success: false, message: "Enter credintials" })
     }
+    const normalizedEmail = email.toLowerCase().trim()
     try {
-        const user = await usermodel.findOne({ email })
+        const user = await usermodel.findOne({ email: normalizedEmail })
         if (!user) {
             return res.json({ success: false, message: "User does not exits" })
         }

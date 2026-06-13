@@ -1,6 +1,9 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import govTestModel from '../model/govTestModel.js';
+import govQuestionPoolModel from '../model/govQuestionPoolModel.js';
+import { poolCache, userSeenCache } from '../config/cacheManager.js';
 import crypto from 'crypto';
+
 
 const generateQuestionsBatch = async (examType, subject, questionSource, count, batchIndex) => {
     console.log(`[START GOV TEST] Batch ${batchIndex}: Starting generation of ${count} questions via Gemini...`);
@@ -88,6 +91,10 @@ export const startGovTest = async (req, res) => {
         return res.json({ success: false, message: "Please provide exam type and subject" });
     }
 
+    const normalizedExamType = examType.toLowerCase().trim();
+    const normalizedSubject = subject.toLowerCase().trim();
+    const normalizedSource = questionSource.toLowerCase().trim();
+
     try {
         // Enforce daily limit of exactly 5 tests per user
         const startOfToday = new Date();
@@ -107,41 +114,98 @@ export const startGovTest = async (req, res) => {
             });
         }
 
-        const geminiKey = process.env.GEMINI_API_KEY;
-        if (!geminiKey) {
-            console.error("[START GOV TEST] No GEMINI_API_KEY defined in backend/.env");
-            return res.json({ success: false, message: "GEMINI_API_KEY is not configured." });
+        // 1. Get seen questions list from Cache (fallback to DB)
+        let seenSet = userSeenCache.get(userId);
+        if (!seenSet) {
+            const seenList = await govTestModel.distinct("questions.questionText", { userId });
+            seenSet = new Set(seenList.map(t => t.trim().toLowerCase()));
+            userSeenCache.set(userId, seenSet, 24 * 60 * 60); // 24 hours TTL
         }
 
-        const startTime = Date.now();
-        console.log("[START GOV TEST] Calling concurrent batch generator...");
+        // 2. Get pool questions from Cache (fallback to DB)
+        const cacheKey = `${normalizedExamType}:${normalizedSubject}:${normalizedSource}`;
+        let pool = poolCache.get(cacheKey);
+        if (!pool) {
+            pool = await govQuestionPoolModel.find({
+                examType: normalizedExamType,
+                subject: normalizedSubject,
+                questionSource: normalizedSource
+            });
+            poolCache.set(cacheKey, pool, 4 * 60 * 60); // 4 hours TTL
+        }
 
-        // Launch 2 batches in parallel
-        const [batch1, batch2] = await Promise.all([
-            generateQuestionsBatch(examType, subject, questionSource, 12, 1),
-            generateQuestionsBatch(examType, subject, questionSource, 13, 2)
-        ]);
+        // 3. Filter pool for unseen questions (in memory)
+        let unseen = pool.filter(q => !seenSet.has(q.questionText.trim().toLowerCase()));
 
-        const duration = ((Date.now() - startTime) / 1000).toFixed(2);
-        console.log(`[START GOV TEST] Concurrent batch calls completed in ${duration}s!`);
+        // 4. If less than 25 unseen questions, call Gemini to replenish pool (cold start / exhausted)
+        if (unseen.length < 25) {
+            const geminiKey = process.env.GEMINI_API_KEY;
+            if (!geminiKey) {
+                console.error("[START GOV TEST] No GEMINI_API_KEY defined in backend/.env");
+                return res.json({ success: false, message: "GEMINI_API_KEY is not configured." });
+            }
 
-        const generatedQuestions = [...batch1, ...batch2];
-        console.log(`[START GOV TEST] Total questions accumulated: ${generatedQuestions.length}`);
+            console.log(`[START GOV TEST] Pool has only ${unseen.length} unseen questions. Calling Gemini to generate a fresh batch of 25...`);
+            const startTime = Date.now();
 
-        if (generatedQuestions.length === 0) {
-            return res.json({ success: false, message: "Could not generate any questions. Please try again." });
+            // Generate 25 new questions in parallel (12 foundational, 13 advanced)
+            const [batch1, batch2] = await Promise.all([
+                generateQuestionsBatch(examType, subject, questionSource, 12, 1),
+                generateQuestionsBatch(examType, subject, questionSource, 13, 2)
+            ]);
+
+            const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+            console.log(`[START GOV TEST] Gemini batch generation finished in ${duration}s.`);
+
+            const generatedQuestions = [...batch1, ...batch2];
+            if (generatedQuestions.length === 0) {
+                return res.json({ success: false, message: "Could not generate questions. Please try again." });
+            }
+
+            // Save new unique questions to DB pool
+            const newPoolDocs = [];
+            for (const q of generatedQuestions) {
+                const isDuplicate = pool.some(pq => pq.questionText.trim().toLowerCase() === q.questionText.trim().toLowerCase());
+                if (!isDuplicate) {
+                    newPoolDocs.push({
+                        examType: normalizedExamType,
+                        subject: normalizedSubject,
+                        questionSource: normalizedSource,
+                        questionText: q.questionText,
+                        options: q.options,
+                        correctOption: q.correctOption,
+                        explanation: q.explanation
+                    });
+                }
+            }
+
+            if (newPoolDocs.length > 0) {
+                const savedDocs = await govQuestionPoolModel.insertMany(newPoolDocs);
+                pool.push(...savedDocs);
+                poolCache.set(cacheKey, pool, 4 * 60 * 60);
+            }
+
+            // Re-evaluate unseen questions list
+            unseen = pool.filter(q => !seenSet.has(q.questionText.trim().toLowerCase()));
+        }
+
+        // 5. Randomly sample 25 questions from unseen questions in RAM
+        const finalQuestions = unseen.sort(() => 0.5 - Math.random()).slice(0, 25);
+
+        if (finalQuestions.length === 0) {
+            return res.json({ success: false, message: "No questions available in the pool. Please try again." });
         }
 
         const testId = crypto.randomUUID();
 
-        // Save the test session to the database
+        // 6. Save the test session to the database
         const newTest = new govTestModel({
             userId,
             testId,
             examType,
             subject,
             questionSource,
-            questions: generatedQuestions.map(q => ({
+            questions: finalQuestions.map(q => ({
                 questionText: q.questionText,
                 options: q.options,
                 correctOption: q.correctOption,
@@ -150,20 +214,24 @@ export const startGovTest = async (req, res) => {
                 isCorrect: false
             })),
             score: 0,
-            totalQuestions: generatedQuestions.length,
+            totalQuestions: finalQuestions.length,
             isCompleted: false
         });
 
         await newTest.save();
 
-        // Filter out correct answers and explanations when sending to client to prevent cheating
-        const clientQuestions = generatedQuestions.map((q, idx) => ({
+        // 7. Filter out correct answers and explanations when sending to client to prevent cheating
+        const clientQuestions = finalQuestions.map((q, idx) => ({
             index: idx,
             questionText: q.questionText,
             options: q.options
         }));
 
-        console.log("[START GOV TEST] Questions generated and stored successfully! testId:", testId);
+        // 8. Update user's seenQuestions in cache
+        finalQuestions.forEach(q => seenSet.add(q.questionText.trim().toLowerCase()));
+        userSeenCache.set(userId, seenSet, 24 * 60 * 60);
+
+        console.log(`[START GOV TEST] Mock test session created successfully! testId: ${testId}`);
         return res.json({ success: true, testId, questions: clientQuestions });
     }
     catch (error) {

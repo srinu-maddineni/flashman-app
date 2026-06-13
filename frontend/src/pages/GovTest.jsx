@@ -109,7 +109,7 @@ const GovTest = () => {
       } catch (err) {
         let errMsg = err.response?.data?.message || err.message || 'Failed to connect to the grading server.';
         if (errMsg.includes("429") || errMsg.toLowerCase().includes("quota") || errMsg.toLowerCase().includes("too many requests") || errMsg.toLowerCase().includes("rate limit")) {
-          errMsg = "Groq API rate limit exceeded. Please wait 30-60 seconds before trying again, or set up billing in your Groq console.";
+          errMsg = "Gemini API rate limit exceeded. Please wait 30-60 seconds before trying again, or set up billing in your Google AI Studio console.";
         }
         toast.error(errMsg);
         navigate('/dashboard');
