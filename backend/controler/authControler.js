@@ -24,17 +24,21 @@ export const register = async (req, res) => {
             httpOnly: true,
             secure: process.env.NODE_ENV === 'production',
             sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'strict',
-            maxAge: 7 * 24 * 60 * 60 * 1000
-
+            maxAge: 7 * 24 * 60 * 60 * 1000,
+            path: '/'
         })
-        const mailsend = {
-            from: process.env.SENDER_EMAIL,
-            to: email,
-            subject: "Welcome to taskmanager",
-            text: `Your account was created successfully by this mail id : ${email}`
+        try {
+            const mailsend = {
+                from: process.env.SENDER_EMAIL,
+                to: email,
+                subject: "Welcome to taskmanager",
+                text: `Your account was created successfully by this mail id : ${email}`
+            }
+            await transporte.sendMail(mailsend)
+        } catch (mailError) {
+            console.error("Welcome email sending failed:", mailError);
         }
-        await transporte.sendMail(mailsend)
-        return res.json({ success: true })
+        return res.json({ success: true, token })
 
     }
     catch (error) {
@@ -70,11 +74,11 @@ export const login = async (req, res) => {
             httpOnly: true,
             secure: process.env.NODE_ENV === 'production',
             sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'strict',
-
-            maxAge: 7 * 24 * 60 * 60 * 1000
+            maxAge: 7 * 24 * 60 * 60 * 1000,
+            path: '/'
         })
 
-        return res.json({ success: true })
+        return res.json({ success: true, token })
 
 
     }
@@ -89,6 +93,7 @@ export const logout = async (req, res) => {
             httpOnly: true,
             secure: process.env.NODE_ENV === 'production',
             sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'strict',
+            path: '/'
         })
         res.json({ success: true, message: 'Logedout' })
     }
@@ -145,7 +150,7 @@ export const verifyemail = async (req, res) => {
             return res.json({ success: false, message: "User not found" })
         }
 
-        if (user.verifyotp === '' || user.verifyotp !== otp) {
+        if (user.verifyotp === '' || user.verifyotp !== String(otp)) {
             return res.json({ success: false, message: "Invalid otp" })
         }
         if (user.verifyotpexpire < Date.now()) {
@@ -212,7 +217,7 @@ export const resetPassword = async (req, res) => {
         if (!user) {
             return res.json({ success: false, message: "User does not exits" })
         }
-        if (otp == "" || user.resetotp !== otp) {
+        if (otp == "" || user.resetotp !== String(otp)) {
             return res.json({ success: false, message: "Invalid otp" })
         }
         if (user.resetotpexpire < Date.now()) {

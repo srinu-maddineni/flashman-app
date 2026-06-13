@@ -1,10 +1,17 @@
 import jwt from 'jsonwebtoken'
 
 const getuserid = async (req,res,next)=>{
-   const {token} = req.cookies
+   let token = (req.cookies || {}).token
+
+   if (!token && req.headers.authorization) {
+     const authHeader = req.headers.authorization
+     if (authHeader.startsWith('Bearer ')) {
+       token = authHeader.substring(7)
+     }
+   }
 
    if(!token){
-    return res.json({success:false,message:"User not autherized"})
+    return res.json({success:false,message:"User not authorized"})
    }
    try{
     const tokenDecode = jwt.verify(token,process.env.JWT_SC_TOKEN)
@@ -13,7 +20,7 @@ const getuserid = async (req,res,next)=>{
         
     }
     else{
-        return res.json({success:false,message:"User not autherized"})
+        return res.json({success:false,message:"User not authorized"})
     }
     next()
    }

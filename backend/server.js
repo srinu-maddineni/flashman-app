@@ -37,6 +37,7 @@ app.use(cors((req, callback) => {
     origin &&
     (origin === cleanOrigin ||
       origin.startsWith("http://localhost:") ||
+      origin.startsWith("http://127.0.0.1:") ||
       origin.endsWith(".vercel.app"))
   ) {
     corsOptions.origin = true

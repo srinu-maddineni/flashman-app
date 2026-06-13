@@ -33,6 +33,9 @@ const Login = () => {
         const response = await axios.post(`${BACKEND_URL}/api/auth/register`, { name, email, password });
         if (response.data.success) {
           toast.success("Account created successfully!");
+          if (response.data.token) {
+            localStorage.setItem('token', response.data.token);
+          }
           setIsLoggedIn(true);
           getUserData();
           navigate('/emailverify');
@@ -43,6 +46,9 @@ const Login = () => {
         const response = await axios.post(`${BACKEND_URL}/api/auth/login`, { email, password });
         if (response.data.success) {
           toast.success("Welcome back!");
+          if (response.data.token) {
+            localStorage.setItem('token', response.data.token);
+          }
           setIsLoggedIn(true);
           getUserData();
           navigate('/dashboard');

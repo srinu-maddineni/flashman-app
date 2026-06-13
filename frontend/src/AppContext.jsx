@@ -15,6 +15,18 @@ export const AppContextProvider = ({ children }) => {
   axios.defaults.withCredentials = true
   const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || ""
 
+  // Attach token from localStorage in Authorization header fallback
+  axios.interceptors.request.use(
+    (config) => {
+      const token = localStorage.getItem('token')
+      if (token) {
+        config.headers.Authorization = `Bearer ${token}`
+      }
+      return config;
+    },
+    (error) => Promise.reject(error)
+  )
+
   // 1. Fetch user data (Name & Verification Status)
   const getUserData = async () => {
     try {
@@ -39,10 +51,12 @@ export const AppContextProvider = ({ children }) => {
       } else {
         setIsLoggedIn(false)
         setUserData(null)
+        localStorage.removeItem('token')
       }
     } catch (error) {
       setIsLoggedIn(false)
       setUserData(null)
+      localStorage.removeItem('token')
     } finally {
       setLoading(false)
     }
@@ -56,11 +70,13 @@ export const AppContextProvider = ({ children }) => {
         setIsLoggedIn(false)
         setUserData(null)
         setHistory([])
+        localStorage.removeItem('token')
         toast.success("Successfully logged out.")
       } else {
         toast.error(response.data.message || "Logout failed.")
       }
     } catch (error) {
+      localStorage.removeItem('token')
       toast.error(error.message || "An error occurred during logout.")
     }
   }
