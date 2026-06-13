@@ -5,27 +5,27 @@ import { toast } from 'react-toastify'
 // Create the context
 export const AppContent = createContext()
 
+// Configure axios defaults
+axios.defaults.withCredentials = true
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || ""
+
+// Attach token from localStorage in Authorization header fallback
+axios.interceptors.request.use(
+  (config) => {
+    const token = localStorage.getItem('token')
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`
+    }
+    return config;
+  },
+  (error) => Promise.reject(error)
+)
+
 export const AppContextProvider = ({ children }) => {
   const [isLoggedIn, setIsLoggedIn] = useState(false)
   const [userData, setUserData] = useState(null)
   const [history, setHistory] = useState([])
   const [loading, setLoading] = useState(true)
-
-  // Configure axios defaults
-  axios.defaults.withCredentials = true
-  const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || ""
-
-  // Attach token from localStorage in Authorization header fallback
-  axios.interceptors.request.use(
-    (config) => {
-      const token = localStorage.getItem('token')
-      if (token) {
-        config.headers.Authorization = `Bearer ${token}`
-      }
-      return config;
-    },
-    (error) => Promise.reject(error)
-  )
 
   // 1. Fetch user data (Name & Verification Status)
   const getUserData = async () => {

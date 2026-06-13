@@ -118,7 +118,9 @@ export const verifyOtp = async (req, res) => {
         }
         const otp = String(
             Math.floor(100000 + Math.random() * 900000)
-        ); user.verifyotp = otp
+        ); 
+        console.log(`[OTP GENERATED] for user email: ${user.email} is: ${otp}`);
+        user.verifyotp = otp
         user.verifyotpexpire = Date.now() + 24 * 60 * 60 * 1000
         await user.save()
         const mail = {
@@ -190,6 +192,7 @@ export const resetOtp = async (req, res) => {
         const otp = String(
             Math.floor(100000 + Math.random() * 900000)
         );
+        console.log(`[RESET OTP GENERATED] for user email: ${user.email} is: ${otp}`);
         user.resetotp = otp
         user.resetotpexpire = Date.now() + 15 * 60 * 1000
         await user.save()
