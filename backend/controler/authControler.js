@@ -133,10 +133,7 @@ export const verifyOtp = async (req, res) => {
             return res.json({ success: true, message: "Otp is sent to your registered mail" })
         } catch (mailError) {
             console.error("Failed to send OTP email:", mailError);
-            return res.json({ 
-                success: true, 
-                message: "OTP email failed to send (Connection timeout). For testing, check server logs or use fallback code 123456." 
-            })
+            return res.json({ success: false, message: mailError.message })
         }
     }
     catch (error) {
@@ -159,7 +156,7 @@ export const verifyemail = async (req, res) => {
             return res.json({ success: false, message: "User not found" })
         }
 
-        if (user.verifyotp === '' || (user.verifyotp !== String(otp) && String(otp) !== '123456')) {
+        if (user.verifyotp === '' || user.verifyotp !== String(otp)) {
             return res.json({ success: false, message: "Invalid otp" })
         }
         if (user.verifyotpexpire < Date.now()) {
@@ -214,10 +211,7 @@ export const resetOtp = async (req, res) => {
             return res.json({ success: true, message: "Reset Otp is sent to your registered mail" })
         } catch (mailError) {
             console.error("Failed to send reset OTP email:", mailError);
-            return res.json({ 
-                success: true, 
-                message: "OTP email failed to send (Connection timeout). For testing, check server logs or use fallback code 123456." 
-            })
+            return res.json({ success: false, message: mailError.message })
         }
     }
     catch (error) {
@@ -235,7 +229,7 @@ export const resetPassword = async (req, res) => {
         if (!user) {
             return res.json({ success: false, message: "User does not exits" })
         }
-        if (otp == "" || (user.resetotp !== String(otp) && String(otp) !== '123456')) {
+        if (otp == "" || user.resetotp !== String(otp)) {
             return res.json({ success: false, message: "Invalid otp" })
         }
         if (user.resetotpexpire < Date.now()) {
