@@ -27,17 +27,16 @@ export const register = async (req, res) => {
             maxAge: 7 * 24 * 60 * 60 * 1000,
             path: '/'
         })
-        try {
-            const mailsend = {
-                from: process.env.SENDER_EMAIL,
-                to: email,
-                subject: "Welcome to taskmanager",
-                text: `Your account was created successfully by this mail id : ${email}`
-            }
-            await transporte.sendMail(mailsend)
-        } catch (mailError) {
-            console.error("Welcome email sending failed:", mailError);
+        const mailsend = {
+            from: process.env.SENDER_EMAIL,
+            to: email,
+            subject: "Welcome to taskmanager",
+            text: `Your account was created successfully by this mail id : ${email}`
         }
+        // Send email in the background to prevent blocking the signup response
+        transporte.sendMail(mailsend).catch((mailError) => {
+            console.error("Welcome email sending failed:", mailError);
+        });
         return res.json({ success: true, token })
 
     }
