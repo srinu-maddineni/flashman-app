@@ -10,6 +10,8 @@ import authRouter from "./routers/authRouter.js"
 import userRouter from "./routers/userRouter.js"
 import interviewRouter from "./routers/interviewRouter.js"
 import feedbackRouter from "./routers/feedbackRouter.js"
+import govTestRouter from "./routers/govTestRouter.js"
+
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -50,6 +52,8 @@ app.use('/api/auth', authRouter)
 app.use('/api/user', userRouter)
 app.use('/api/interview', interviewRouter)
 app.use('/api/feedback', feedbackRouter)
+app.use('/api/gov', govTestRouter)
+
 
 const distPath = path.join(__dirname, '../frontend/dist')
 if (process.env.NODE_ENV === 'production' && fs.existsSync(distPath)) {

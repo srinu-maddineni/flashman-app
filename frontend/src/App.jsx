@@ -9,6 +9,8 @@ import Emailverify from './pages/Emailverify'
 import Dashboard from './pages/Dashboard'
 import Test from './pages/Test'
 import TestDetail from './pages/TestDetail'
+import GovTest from './pages/GovTest'
+import GovTestDetail from './pages/GovTestDetail'
 
 const App = () => {
   return (
@@ -30,6 +32,8 @@ const App = () => {
       <Route path='/emailverify' element={<Emailverify/>} />
       <Route path='/test' element={<Test/>} />
       <Route path='/testdetail' element={<TestDetail/>} />
+      <Route path='/gov-test' element={<GovTest/>} />
+      <Route path='/gov-testdetail' element={<GovTestDetail/>} />
     </Routes>
     </>
   )
