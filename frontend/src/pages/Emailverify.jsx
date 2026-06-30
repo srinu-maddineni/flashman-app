@@ -10,10 +10,8 @@ const Emailverify = () => {
   const [isOtpSent, setIsOtpSent] = useState(false)
   const [loading, setLoading] = useState(false)
   const [sentAt, setSentAt] = useState(null)
-
   const navigate = useNavigate()
   const { setIsLoggedIn, getUserData } = useContext(AppContent)
-  axios.defaults.withCredentials = true
   const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "";
 
   const handleSendOtp = async (e) => {

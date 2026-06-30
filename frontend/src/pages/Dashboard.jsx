@@ -243,7 +243,6 @@ const Dashboard = () => {
   useEffect(() => {
     if (isLoggedIn && BACKEND_URL) {
       fetchDashboardFeedbacks();
-      getGovHistory();
     }
   }, [isLoggedIn, BACKEND_URL]);
 
@@ -430,7 +429,7 @@ const Dashboard = () => {
     totalAssessments = govHistory ? govHistory.length : 0;
     const completedTests = govHistory ? govHistory.filter(item => item.isCompleted) : [];
     overallAvgScore = completedTests.length > 0
-      ? completedTests.reduce((sum, item) => sum + item.score, 0) / completedTests.length
+      ? completedTests.reduce((sum, item) => sum + (item.score / (item.totalQuestions || 25)) * 10, 0) / completedTests.length
       : 0;
 
     const examScores = {};
@@ -440,7 +439,7 @@ const Dashboard = () => {
         if (!examScores[exam]) {
           examScores[exam] = { sum: 0, count: 0 };
         }
-        examScores[exam].sum += item.score;
+        examScores[exam].sum += (item.score / (item.totalQuestions || 25)) * 10;
         examScores[exam].count += 1;
       }
     });
@@ -673,7 +672,7 @@ const Dashboard = () => {
                         const barWidth = colWidth * 0.45;
                         const x = margin.left + idx * colWidth + (colWidth - barWidth) / 2;
                         
-                        const scoreVal = prepType === 'software' ? (item.averageScore || 0) : (item.score || 0);
+                        const scoreVal = prepType === 'software' ? (item.averageScore || 0) : ((item.score || 0) / (item.totalQuestions || 25)) * 10;
                         const labelText = prepType === 'software' ? item.techStack : item.subject;
                         
                         const barHeight = (scoreVal / 10) * contentHeight;

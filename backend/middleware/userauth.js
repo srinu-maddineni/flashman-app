@@ -11,7 +11,7 @@ const getuserid = async (req,res,next)=>{
    }
 
    if(!token){
-    return res.json({success:false,message:"User not authorized"})
+         return res.status(401).json({success:false,message:"User not authorized"})
    }
    try{
     const tokenDecode = jwt.verify(token,process.env.JWT_SC_TOKEN)
@@ -20,12 +20,12 @@ const getuserid = async (req,res,next)=>{
         
     }
     else{
-        return res.json({success:false,message:"User not authorized"})
+        return res.status(401).json({success:false,message:"User not authorized"})
     }
     next()
    }
    catch(error){
-    return res.json({success:false,message:error.message})
+     return res.status(401).json({success:false,message:error.message})
    }
 
 }

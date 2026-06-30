@@ -3,7 +3,7 @@ import usermodel from "../model/usermodel.js";
 export const userData = async (req,res) =>{
     const userId = req.userId
     if(!userId){
-        return res.json({success:false,message:"Expird Time relogin"})
+        return res.json({success:false,message:"Session expired, please log in again"})
     }
     try{
         const user = await usermodel.findById(userId)
@@ -12,6 +12,7 @@ export const userData = async (req,res) =>{
         }
         return res.json({success:true,
             userData:{
+                _id:user._id,
                 name:user.name,
                 isAuthenticated:user.isverified
         }})

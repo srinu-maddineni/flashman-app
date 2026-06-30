@@ -67,7 +67,7 @@ const GovTestDetail = () => {
 
   if (!test) return null;
 
-  const scorePercentage = (test.score / test.totalQuestions) * 100;
+  const scorePercentage = Math.round((test.score / test.totalQuestions) * 100);
   const testDate = new Date(test.createdAt).toLocaleDateString(undefined, {
     weekday: 'long',
     year: 'numeric',
@@ -75,15 +75,15 @@ const GovTestDetail = () => {
     day: 'numeric'
   });
 
-  const getScoreColor = (score) => {
-    if (score >= 8) return 'text-emerald-700 bg-emerald-50 border-emerald-200';
-    if (score >= 5) return 'text-amber-700 bg-amber-50 border-amber-200';
+  const getScoreColor = (pct) => {
+    if (pct >= 80) return 'text-emerald-700 bg-emerald-50 border-emerald-200';
+    if (pct >= 50) return 'text-amber-700 bg-amber-50 border-amber-200';
     return 'text-rose-700 bg-rose-50 border-rose-200';
   };
 
-  const getGradeTitle = (score) => {
-    if (score >= 8) return 'Excellent Work! 🏆';
-    if (score >= 5) return 'Good Effort! 👍';
+  const getGradeTitle = (pct) => {
+    if (pct >= 80) return 'Excellent Work! 🏆';
+    if (pct >= 50) return 'Good Effort! 👍';
     return 'Keep Practicing! 📚';
   };
 
@@ -137,7 +137,7 @@ const GovTestDetail = () => {
               </span>
             </div>
             <h1 className="text-2xl lg:text-3xl font-extrabold text-slate-900 mt-2">
-              {getGradeTitle(test.score)}
+              {getGradeTitle(scorePercentage)}
             </h1>
             <p className="text-slate-500 text-sm">{testDate}</p>
           </div>
@@ -155,7 +155,7 @@ const GovTestDetail = () => {
 
             <div className="text-right">
               <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">Score Percentage</p>
-              <span className={`inline-block text-xl lg:text-2xl font-black mt-1 px-3 py-1 rounded-2xl border ${getScoreColor(test.score)}`}>
+              <span className={`inline-block text-xl lg:text-2xl font-black mt-1 px-3 py-1 rounded-2xl border ${getScoreColor(scorePercentage)}`}>
                 {scorePercentage}%
               </span>
             </div>

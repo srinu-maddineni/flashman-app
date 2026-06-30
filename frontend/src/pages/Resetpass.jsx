@@ -10,9 +10,7 @@ const Resetpass = () => {
   const [newPassword, setNewPassword] = useState('')
   const [isOtpSent, setIsOtpSent] = useState(false)
   const [loading, setLoading] = useState(false)
-
-  const navigate = useNavigate()
-  axios.defaults.withCredentials = true;
+  const navigate = useNavigate();
   const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "";
 
   // Step 1: Request OTP

@@ -16,8 +16,6 @@ const Login = () => {
   const navigate = useNavigate()
   const { setIsLoggedIn, getUserData } = useContext(AppContent)
 
-  // Configure axios defaults
-  axios.defaults.withCredentials = true;
   const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "";
 
   const handleSubmit = async (e) => {

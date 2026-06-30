@@ -4,6 +4,8 @@ import govQuestionPoolModel from '../model/govQuestionPoolModel.js';
 import { poolCache, userSeenCache } from '../config/cacheManager.js';
 import crypto from 'crypto';
 
+const activeGenerations = new Map(); // userId -> Promise
+
 
 const generateQuestionsBatch = async (examType, subject, questionSource, count, batchIndex) => {
     console.log(`[START GOV TEST] Batch ${batchIndex}: Starting generation of ${count} questions via Gemini...`);
@@ -95,7 +97,45 @@ export const startGovTest = async (req, res) => {
     const normalizedSubject = subject.toLowerCase().trim();
     const normalizedSource = questionSource.toLowerCase().trim();
 
-    try {
+    // If there is already an active generation for this user, wait for it
+    if (activeGenerations.has(userId)) {
+        console.log(`[START GOV TEST] User ${userId} has an active generation in progress. Awaiting its completion...`);
+        try {
+            const result = await activeGenerations.get(userId);
+            return res.json(result);
+        } catch (err) {
+            console.error(`[START GOV TEST] Awaited generation failed for user ${userId}:`, err);
+            // If the active one failed, we'll fall through and let this request try again
+        }
+    }
+
+    const generateAndSaveTest = async () => {
+        // Check for any existing incomplete test for this user
+        const activeTest = await govTestModel.findOne({ userId, isCompleted: false });
+        if (activeTest) {
+            if (
+                activeTest.examType.toLowerCase().trim() === normalizedExamType &&
+                activeTest.subject.toLowerCase().trim() === normalizedSubject &&
+                activeTest.questionSource.toLowerCase().trim() === normalizedSource
+            ) {
+                console.log(`[START GOV TEST] Resuming existing active test ${activeTest.testId} for user ${userId}`);
+                
+                // Filter out correct answers and explanations when sending to client to prevent cheating
+                const clientQuestions = activeTest.questions.map((q, idx) => ({
+                    index: idx,
+                    questionText: q.questionText,
+                    options: q.options
+                }));
+
+                return { success: true, testId: activeTest.testId, questions: clientQuestions };
+            } else {
+                // If starting a different exam/subject, mark the old one completed (auto-submit)
+                console.log(`[START GOV TEST] Auto-submitting old active test ${activeTest.testId} for user ${userId} to start new one`);
+                activeTest.isCompleted = true;
+                await activeTest.save();
+            }
+        }
+
         // Enforce daily limit of exactly 5 tests per user
         const startOfToday = new Date();
         startOfToday.setHours(0, 0, 0, 0);
@@ -108,10 +148,10 @@ export const startGovTest = async (req, res) => {
         console.log(`[START GOV TEST] User ${userId} has already started ${testsCountToday} tests today.`);
 
         if (testsCountToday >= 5) {
-            return res.json({ 
+            return { 
                 success: false, 
                 message: "You have reached your daily limit of 5 mock tests. Please try again tomorrow!" 
-            });
+            };
         }
 
         // 1. Get seen questions list from Cache (fallback to DB)
@@ -142,7 +182,7 @@ export const startGovTest = async (req, res) => {
             const geminiKey = process.env.GEMINI_API_KEY;
             if (!geminiKey) {
                 console.error("[START GOV TEST] No GEMINI_API_KEY defined in backend/.env");
-                return res.json({ success: false, message: "GEMINI_API_KEY is not configured." });
+                return { success: false, message: "GEMINI_API_KEY is not configured." };
             }
 
             console.log(`[START GOV TEST] Pool has only ${unseen.length} unseen questions. Calling Gemini to generate a fresh batch of 25...`);
@@ -159,7 +199,7 @@ export const startGovTest = async (req, res) => {
 
             const generatedQuestions = [...batch1, ...batch2];
             if (generatedQuestions.length === 0) {
-                return res.json({ success: false, message: "Could not generate questions. Please try again." });
+                return { success: false, message: "Could not generate questions. Please try again." };
             }
 
             // Save new unique questions to DB pool
@@ -189,11 +229,15 @@ export const startGovTest = async (req, res) => {
             unseen = pool.filter(q => !seenSet.has(q.questionText.trim().toLowerCase()));
         }
 
-        // 5. Randomly sample 25 questions from unseen questions in RAM
-        const finalQuestions = unseen.sort(() => 0.5 - Math.random()).slice(0, 25);
+        // 5. Fisher-Yates shuffle for unbiased random sampling, then take 25
+        for (let i = unseen.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [unseen[i], unseen[j]] = [unseen[j], unseen[i]];
+        }
+        const finalQuestions = unseen.slice(0, 25);
 
         if (finalQuestions.length === 0) {
-            return res.json({ success: false, message: "No questions available in the pool. Please try again." });
+            return { success: false, message: "No questions available in the pool. Please try again." };
         }
 
         const testId = crypto.randomUUID();
@@ -232,15 +276,24 @@ export const startGovTest = async (req, res) => {
         userSeenCache.set(userId, seenSet, 24 * 60 * 60);
 
         console.log(`[START GOV TEST] Mock test session created successfully! testId: ${testId}`);
-        return res.json({ success: true, testId, questions: clientQuestions });
-    }
-    catch (error) {
+        return { success: true, testId, questions: clientQuestions };
+    };
+
+    const generationPromise = generateAndSaveTest();
+    activeGenerations.set(userId, generationPromise);
+
+    try {
+        const result = await generationPromise;
+        return res.json(result);
+    } catch (error) {
         console.error("[START GOV TEST] Error in startGovTest:", error);
         let errMsg = error.message || "";
         if (errMsg.includes("429") || errMsg.toLowerCase().includes("quota") || errMsg.toLowerCase().includes("too many requests") || errMsg.toLowerCase().includes("rate limit")) {
             errMsg = "API rate limit exceeded. Please wait 30-60 seconds before trying again, or set up billing in your Google AI Studio console.";
         }
         return res.json({ success: false, message: errMsg });
+    } finally {
+        activeGenerations.delete(userId);
     }
 };
 

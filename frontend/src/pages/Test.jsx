@@ -163,6 +163,7 @@ const Test = () => {
       speakQuestion(questions[currentIndex]);
     } else {
       // If muted, start microphone immediately on question switch
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       startListeningAutomatically();
     }
 
@@ -177,10 +178,17 @@ const Test = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentIndex, questions, isMuted, loading, testFinished]);
 
+  const handleTimerTimeout = async () => {
+    const finalAnswer = currentAnswerRef.current.trim() || 'No answer provided. (Time limit exceeded)';
+    toast.warning("Time's up for this question! Auto-submitting answer.");
+    await submitAndProceed(finalAnswer);
+  };
+
   // Manage 90-second countdown timer for each question
   useEffect(() => {
     if (loading || testFinished || !questions.length) return;
 
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setTimeLeft(90);
     const interval = setInterval(() => {
       setTimeLeft((prev) => {
@@ -197,12 +205,6 @@ const Test = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentIndex, loading, testFinished, questions]);
 
-  const handleTimerTimeout = async () => {
-    const finalAnswer = currentAnswerRef.current.trim() || 'No answer provided. (Time limit exceeded)';
-    toast.warning("Time's up for this question! Auto-submitting answer.");
-    await submitAndProceed(finalAnswer);
-  };
-
   // Stop listening and clear timers when question changes
   useEffect(() => {
     if (isListening && recognitionRef.current) {
@@ -214,18 +216,33 @@ const Test = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentIndex]);
 
-  // Handle Voice Waveform Canvas Draw loops
-  useEffect(() => {
-    if (isListening) {
-      startVoiceVisualizer();
-    } else {
-      stopVoiceVisualizer();
+  const stopVoiceVisualizer = () => {
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
     }
-    return () => {
-      stopVoiceVisualizer();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isListening]);
+    if (sourceRef.current) {
+      sourceRef.current.disconnect();
+      sourceRef.current = null;
+    }
+    if (audioContextRef.current) {
+      if (audioContextRef.current.state !== 'closed') {
+        audioContextRef.current.close();
+      }
+      audioContextRef.current = null;
+    }
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+    }
+    const canvas = canvasRef.current;
+    if (canvas) {
+      const canvasCtx = canvas.getContext('2d');
+      if (canvasCtx) {
+        canvasCtx.clearRect(0, 0, canvas.width, canvas.height);
+      }
+    }
+  };
 
   const startVoiceVisualizer = async () => {
     try {
@@ -292,33 +309,18 @@ const Test = () => {
     }
   };
 
-  const stopVoiceVisualizer = () => {
-    if (animationFrameRef.current) {
-      cancelAnimationFrame(animationFrameRef.current);
-      animationFrameRef.current = null;
+  // Handle Voice Waveform Canvas Draw loops
+  useEffect(() => {
+    if (isListening) {
+      startVoiceVisualizer();
+    } else {
+      stopVoiceVisualizer();
     }
-    if (sourceRef.current) {
-      sourceRef.current.disconnect();
-      sourceRef.current = null;
-    }
-    if (audioContextRef.current) {
-      if (audioContextRef.current.state !== 'closed') {
-        audioContextRef.current.close();
-      }
-      audioContextRef.current = null;
-    }
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop());
-      streamRef.current = null;
-    }
-    const canvas = canvasRef.current;
-    if (canvas) {
-      const canvasCtx = canvas.getContext('2d');
-      if (canvasCtx) {
-        canvasCtx.clearRect(0, 0, canvas.width, canvas.height);
-      }
-    }
-  };
+    return () => {
+      stopVoiceVisualizer();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isListening]);
 
   const getSpeechErrorMessage = (error) => {
     switch (error) {
@@ -383,7 +385,7 @@ const Test = () => {
       try {
         setLoading(true);
         const response = await axios.post(`${BACKEND_URL}/api/interview/start`, { techStack, difficulty });
-        console.log(response)
+
         if (response.data.success) {
           setTestId(response.data.testId);
           setQuestions(response.data.questions);
@@ -420,7 +422,7 @@ const Test = () => {
     await submitAndProceed(skipText);
   };
 
-  const submitAndProceed = async (answerText) => {
+  async function submitAndProceed(answerText) {
     shouldBeListeningRef.current = false;
     if (recognitionRef.current) {
       try {
@@ -479,7 +481,7 @@ const Test = () => {
     } finally {
       setSubmitting(false);
     }
-  };
+  }
 
   // Get user initials for avatar
   const getUserInitials = () => {
@@ -535,7 +537,10 @@ const Test = () => {
     <div className="min-h-screen bg-slate-50 text-slate-800 font-sans flex flex-col">
       {/* Top Navigation Bar */}
       <nav className="sticky top-0 z-20 bg-white border-b border-slate-200 px-6 py-4 flex justify-between items-center shadow-xs">
-        <div className="flex items-center gap-3 cursor-pointer" onClick={() => navigate('/dashboard')}>
+        <div className="flex items-center gap-3 cursor-pointer" onClick={() => {
+          const confirmExit = window.confirm("Are you sure you want to exit the test? Your current progress will be lost.");
+          if (confirmExit) navigate('/dashboard');
+        }}>
           <img src={image.flash} className="h-10 w-auto object-contain" alt="Flash logo" />
           <span className="text-2xl font-extrabold tracking-wider hidden sm:inline-block">
             <span className="text-red-600">Flash</span>

@@ -213,10 +213,10 @@ export const getInterviewHistory = async (req, res) => {
                     totalQuestions: { $sum: 1 },
                     // Count how many questions have been evaluated (where score is not null)
                     evaluatedQuestions: {
-                        $sum: { $cond: [{ $ifNull: ["$score", false] }, 1, 0] }
+                        $sum: { $cond: [{ $ne: ["$score", null] }, 1, 0] }
                     },
-                    // Calculate the average score for this test
-                    averageScore: { $avg: "$score" }
+                    // Calculate the average score for this test (exclude failed evaluations with score -1)
+                    averageScore: { $avg: { $cond: [{ $gte: ["$score", 0] }, "$score", null] } }
                 }
             },
 

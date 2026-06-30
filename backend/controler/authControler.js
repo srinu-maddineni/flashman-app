@@ -8,13 +8,13 @@ import transporte from "../config/nodemailer.js";
 export const register = async (req, res) => {
     const { name, email, password } = req.body
     if (!name || !email || !password) {
-        return res.json({ success: false, message: "missing Deatails" })
+        return res.json({ success: false, message: "Missing details" })
     }
     const normalizedEmail = email.toLowerCase().trim()
     try {
         const userExits = await usermodel.findOne({ email: normalizedEmail })
         if (userExits) {
-            return res.json({ success: false, message: "User already Exits" })
+            return res.json({ success: false, message: "User already exists" })
         }
         const hashPassword = await bcrypt.hash(password, 10)
         const user = new usermodel({ name, email: normalizedEmail, password: hashPassword })
@@ -30,9 +30,9 @@ export const register = async (req, res) => {
         })
         const mailsend = {
             from: process.env.SENDER_EMAIL,
-            to: email,
-            subject: "Welcome to taskmanager",
-            text: `Your account was created successfully by this mail id : ${email}`
+            to: normalizedEmail,
+            subject: "Welcome to Flashman",
+            text: `Your account was created successfully with this email: ${normalizedEmail}`
         }
         // Send email in the background to prevent blocking the signup response
         transporte.sendMail(mailsend).catch((mailError) => {
@@ -52,7 +52,7 @@ export const register = async (req, res) => {
 
 
 export const login = async (req, res) => {
-    console.log('Login endpoint hit with body:', req.body);
+    // Login request received
     const { email, password } = req.body;
     if (!email || !password) {
         return res.json({ success: false, message: 'email and password required' })
@@ -96,7 +96,7 @@ export const logout = async (req, res) => {
             sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'strict',
             path: '/'
         })
-        res.json({ success: true, message: 'Logedout' })
+        res.json({ success: true, message: 'Logged out' })
     }
     catch (error) {
         return res.json({ success: false, message: 'unable to logout' })
@@ -115,12 +115,12 @@ export const verifyOtp = async (req, res) => {
             })
         }
         if (user.isverified) {
-            return res.json({ success: false, message: "user is verfied" })
+            return res.json({ success: false, message: "User is already verified" })
         }
         const otp = String(
             Math.floor(100000 + Math.random() * 900000)
         ); 
-        console.log(`[OTP GENERATED] for user email: ${user.email} is: ${otp}`);
+        // OTP generated for verification
         user.verifyotp = otp
         user.verifyotpexpire = Date.now() + 24 * 60 * 60 * 1000
         await user.save()
@@ -158,11 +158,11 @@ export const verifyemail = async (req, res) => {
             return res.json({ success: false, message: "User not found" })
         }
 
-        if (user.verifyotp === '' || user.verifyotp !== String(otp)) {
-            return res.json({ success: false, message: "Invalid otp" })
-        }
         if (user.verifyotpexpire < Date.now()) {
-            return res.json({ success: false, message: "Otp is expired" })
+            return res.json({ success: false, message: "OTP has expired. Please request a new one." })
+        }
+        if (user.verifyotp === '' || user.verifyotp !== String(otp)) {
+            return res.json({ success: false, message: "Invalid OTP" })
         }
         user.isverified = true
         user.verifyotp = ""
@@ -194,12 +194,12 @@ export const resetOtp = async (req, res) => {
     try {
         const user = await usermodel.findOne({ email: normalizedEmail })
         if (!user) {
-            return res.json({ success: false, message: "User not find" })
+            return res.json({ success: false, message: "User not found" })
         }
         const otp = String(
             Math.floor(100000 + Math.random() * 900000)
         );
-        console.log(`[RESET OTP GENERATED] for user email: ${user.email} is: ${otp}`);
+        // Reset OTP generated
         user.resetotp = otp
         user.resetotpexpire = Date.now() + 15 * 60 * 1000
         await user.save()
@@ -225,26 +225,26 @@ export const resetOtp = async (req, res) => {
 export const resetPassword = async (req, res) => {
     const { email, otp, newPassword } = req.body
     if (!email || !otp || !newPassword) {
-        return res.json({ success: false, message: "Enter credintials" })
+        return res.json({ success: false, message: "Enter credentials" })
     }
     const normalizedEmail = email.toLowerCase().trim()
     try {
         const user = await usermodel.findOne({ email: normalizedEmail })
         if (!user) {
-            return res.json({ success: false, message: "User does not exits" })
-        }
-        if (otp == "" || user.resetotp !== String(otp)) {
-            return res.json({ success: false, message: "Invalid otp" })
+            return res.json({ success: false, message: "User does not exist" })
         }
         if (user.resetotpexpire < Date.now()) {
-            return res.json({ success: false, message: "Otp expired" })
+            return res.json({ success: false, message: "OTP has expired. Please request a new one." })
+        }
+        if (otp === "" || user.resetotp !== String(otp)) {
+            return res.json({ success: false, message: "Invalid OTP" })
         }
         const hasedPassword = await bcrypt.hash(newPassword, 10)
         user.resetotp = ''
         user.resetotpexpire = 0
         user.password = hasedPassword
         await user.save()
-        return res.json({ success: true, message: "Password is reseted" })
+        return res.json({ success: true, message: "Password has been reset successfully" })
     }
     catch (error) {
         return res.json({ success: false, message: error.message })

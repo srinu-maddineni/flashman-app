@@ -3,7 +3,7 @@ import { evaluateAnswer, getInterviewHistory, startText, getTestResult, reEvalua
 import getuserid from '../middleware/userauth.js';
 import multer from 'multer';
 
-const upload = multer({ storage: multer.memoryStorage() });
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } }); // 5MB max
 const interviewRouter = express.Router();
 
 interviewRouter.get('/test/:testId', getuserid, getTestResult);

@@ -24,6 +24,7 @@ const GovTest = () => {
   // 15 minutes overall timer = 900 seconds
   const [timeLeft, setTimeLeft] = useState(900);
   const timerRef = useRef(null);
+  const submittingRef = useRef(false);
 
   // Redirect if not logged in
   useEffect(() => {
@@ -63,7 +64,18 @@ const GovTest = () => {
             console.log("[GovTest] Resuming existing exam session:", parsed.testId);
             setTestId(parsed.testId);
             setQuestions(parsed.questions);
-            setAnswers(parsed.answers || Array(parsed.questions.length).fill(''));
+            
+            // Reconstruct the answers array to prevent sparse array / null serialization issues
+            const loadedAnswers = Array(parsed.questions.length).fill('');
+            if (Array.isArray(parsed.answers)) {
+              parsed.answers.forEach((ans, idx) => {
+                if (idx < loadedAnswers.length && ans !== null && ans !== undefined) {
+                  loadedAnswers[idx] = ans;
+                }
+              });
+            }
+            setAnswers(loadedAnswers);
+
             setTimeLeft(parsed.timeLeft ?? 900);
             setCurrentIndex(parsed.currentIndex || 0);
             setLoading(false);
@@ -161,6 +173,7 @@ const GovTest = () => {
   }, [loading, questions]);
 
   const handleTimeOut = async () => {
+    if (submittingRef.current) return; // Prevent double-submission
     toast.warning("Time limit exceeded! Auto-submitting your answers...");
     await submitTestAnswers(answers);
   };
@@ -195,6 +208,8 @@ const GovTest = () => {
   };
 
   const submitTestAnswers = async (finalAnswers) => {
+    if (submittingRef.current) return; // Prevent double-submission
+    submittingRef.current = true;
     if (timerRef.current) clearInterval(timerRef.current);
     setSubmitting(true);
 

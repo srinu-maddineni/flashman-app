@@ -117,6 +117,7 @@ const TestDetail = () => {
   // Initial fetch on mount
   useEffect(() => {
     if (isLoggedIn && testId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       fetchResults(true);
       checkIfFeedbackSubmitted();
     }
